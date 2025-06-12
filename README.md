@@ -60,6 +60,23 @@ node --version
 npm --version
 ```
 
+## ⚡ Início Rápido (1 Comando)
+
+```bash
+# Clone o repositório
+git clone https://github.com/seu-usuario/agrolytix-backend.git
+cd agrolytix-backend
+
+# Execute o setup completo (Windows PowerShell)
+.\scripts\setup-completo.ps1
+```
+
+**Pronto!** Em alguns minutos você terá:
+- ✅ API funcionando em http://localhost:3000
+- ✅ Banco PostgreSQL configurado
+- ✅ Usuário admin criado
+- ✅ Todos os endpoints testados e validados
+
 ## 🚀 Instalação e Configuração
 
 ### 1. Clonar o Repositório
@@ -91,7 +108,10 @@ npm install
 ### Opção 1: Setup Completo Automatizado (RECOMENDADO)
 
 ```bash
-# Windows PowerShell
+# Windows PowerShell - Setup completo com validação
+.\scripts\setup-completo.ps1
+
+# Ou usando docker-manager
 .\scripts\docker-manager.ps1 setup
 
 # Linux/Mac
@@ -237,9 +257,15 @@ backup    # Backup do banco
 restore   # Restaurar backup
 ```
 
-### Scripts de Teste
+### Scripts de Setup e Teste
 
 ```bash
+# Setup completo automatizado (RECOMENDADO)
+.\scripts\setup-completo.ps1
+
+# Setup completo sem validação
+.\scripts\setup-completo.ps1 -SkipValidation
+
 # Teste completo da API
 .\scripts\test-api.ps1
 
