@@ -1,0 +1,45 @@
+{
+  "name": "agrolytix-backend",
+  "version": "1.0.0",
+  "description": "Backend da aplicação Agrolytix para gestão de ativos agrícolas",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "test": "echo \"Testes não configurados ainda\" && exit 0",
+    "docker:setup": "docker-compose build && docker-compose up -d postgres redis",
+    "docker:start": "docker-compose up -d",
+    "docker:stop": "docker-compose down",
+    "docker:restart": "docker-compose restart",
+    "docker:logs": "docker-compose logs -f",
+    "docker:db": "docker-compose up -d postgres adminer",
+    "docker:clean": "docker-compose down -v --remove-orphans",
+    "docker:backup": "docker-compose exec postgres pg_dump -U agrolytix_user agrolytix_db",
+    "docker:shell": "docker-compose exec app sh",
+    "docker:db-shell": "docker-compose exec postgres psql -U agrolytix_user -d agrolytix_db"
+  },
+  "keywords": [
+    "agrolytix",
+    "agricultura",
+    "gestão",
+    "nodejs",
+    "express",
+    "postgresql"
+  ],
+  "author": "Equipe Agrolytix",
+  "license": "MIT",
+  "type": "commonjs",
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "dotenv": "^16.5.0",
+    "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.16.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}

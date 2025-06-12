@@ -1,0 +1,36 @@
+FROM node:18-alpine
+
+# Instalar dependências do sistema
+RUN apk add --no-cache \
+    postgresql-client \
+    curl \
+    git
+
+# Criar diretório da aplicação
+WORKDIR /app
+
+# Copiar arquivos de dependências
+COPY package*.json ./
+
+# Instalar dependências
+RUN npm install
+
+# Instalar nodemon globalmente para desenvolvimento
+RUN npm install -g nodemon
+
+# Copiar código da aplicação
+COPY . .
+
+# Criar usuário não-root
+RUN addgroup -g 1001 -S nodejs
+RUN adduser -S nodejs -u 1001
+
+# Alterar propriedade dos arquivos
+RUN chown -R nodejs:nodejs /app
+USER nodejs
+
+# Expor porta
+EXPOSE 3000
+
+# Comando padrão para desenvolvimento
+CMD ["npm", "run", "dev"] 
