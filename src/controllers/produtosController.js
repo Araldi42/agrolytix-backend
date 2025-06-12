@@ -29,21 +29,33 @@ const produtosController = {
             let consulta = `
                 SELECT 
                     p.id,
-                    p.nome,
-                    p.codigo_interno,
-                    p.descricao,
-                    p.unidade_medida,
-                    p.preco_unitario,
-                    p.categoria_id,
+                    p.empresa_id,
+                    p.fazenda_id,
                     p.tipo_id,
+                    p.codigo_interno,
+                    p.codigo_barras,
+                    p.nome,
+                    p.descricao,
+                    p.numero_serie,
+                    p.marca,
+                    p.modelo,
+                    p.ano_fabricacao,
+                    p.valor_aquisicao,
+                    p.data_aquisicao,
+                    p.fornecedor_id,
+                    p.categoria_produto,
+                    p.status,
+                    p.observacoes,
                     p.ativo,
                     p.criado_em,
                     p.atualizado_em,
-                    c.nome as categoria_nome,
-                    t.nome as tipo_nome
+                    f.nome as fazenda_nome,
+                    t.nome as tipo_nome,
+                    forn.nome as fornecedor_nome
                 FROM produtos p
-                LEFT JOIN categorias c ON p.categoria_id = c.id
+                LEFT JOIN fazendas f ON p.fazenda_id = f.id
                 LEFT JOIN tipos t ON p.tipo_id = t.id
+                LEFT JOIN fornecedores forn ON p.fornecedor_id = forn.id
                 WHERE p.empresa_id = $1 AND p.ativo = true
             `;
 
@@ -124,21 +136,33 @@ const produtosController = {
             const consulta = `
                 SELECT 
                     p.id,
-                    p.nome,
-                    p.codigo_interno,
-                    p.descricao,
-                    p.unidade_medida,
-                    p.preco_unitario,
-                    p.categoria_id,
+                    p.empresa_id,
+                    p.fazenda_id,
                     p.tipo_id,
+                    p.codigo_interno,
+                    p.codigo_barras,
+                    p.nome,
+                    p.descricao,
+                    p.numero_serie,
+                    p.marca,
+                    p.modelo,
+                    p.ano_fabricacao,
+                    p.valor_aquisicao,
+                    p.data_aquisicao,
+                    p.fornecedor_id,
+                    p.categoria_produto,
+                    p.status,
+                    p.observacoes,
                     p.ativo,
                     p.criado_em,
                     p.atualizado_em,
-                    c.nome as categoria_nome,
-                    t.nome as tipo_nome
+                    f.nome as fazenda_nome,
+                    t.nome as tipo_nome,
+                    forn.nome as fornecedor_nome
                 FROM produtos p
-                LEFT JOIN categorias c ON p.categoria_id = c.id
+                LEFT JOIN fazendas f ON p.fazenda_id = f.id
                 LEFT JOIN tipos t ON p.tipo_id = t.id
+                LEFT JOIN fornecedores forn ON p.fornecedor_id = forn.id
                 WHERE p.id = $1 AND p.empresa_id = $2 AND p.ativo = true
             `;
 
@@ -167,7 +191,24 @@ const produtosController = {
     async criar(req, res, next) {
         try {
             const { empresa_id } = req.usuario;
-            const { nome, codigo_interno, descricao, unidade_medida, preco_unitario, categoria_id, tipo_id } = req.body;
+            const { 
+                fazenda_id, 
+                tipo_id, 
+                codigo_interno, 
+                codigo_barras,
+                nome, 
+                descricao,
+                numero_serie,
+                marca,
+                modelo,
+                ano_fabricacao,
+                valor_aquisicao,
+                data_aquisicao,
+                fornecedor_id,
+                categoria_produto = 'insumo',
+                status = 'ativo',
+                observacoes
+            } = req.body;
             const usuarioId = req.usuario.id;
 
             // Validação básica
@@ -178,49 +219,71 @@ const produtosController = {
                 });
             }
 
-            if (!codigo_interno || codigo_interno.trim().length === 0) {
+            if (!fazenda_id) {
                 return res.status(400).json({
                     sucesso: false,
-                    mensagem: 'Código interno é obrigatório'
+                    mensagem: 'Fazenda é obrigatória'
                 });
             }
 
-            // Verificar se código interno já existe
-            const consultaExistente = `
-                SELECT id FROM produtos 
-                WHERE codigo_interno = $1 AND empresa_id = $2 AND ativo = true
-            `;
-
-            const produtoExistente = await query(consultaExistente, [codigo_interno.trim(), empresa_id]);
-
-            if (produtoExistente.rows.length > 0) {
-                return res.status(409).json({
+            if (!tipo_id) {
+                return res.status(400).json({
                     sucesso: false,
-                    mensagem: 'Código interno já existe para esta empresa'
+                    mensagem: 'Tipo do produto é obrigatório'
                 });
+            }
+
+            // Verificar se código interno já existe (se fornecido)
+            if (codigo_interno) {
+                const consultaExistente = `
+                    SELECT id FROM produtos 
+                    WHERE codigo_interno = $1 AND empresa_id = $2 AND ativo = true
+                `;
+
+                const produtoExistente = await query(consultaExistente, [codigo_interno.trim(), empresa_id]);
+
+                if (produtoExistente.rows.length > 0) {
+                    return res.status(409).json({
+                        sucesso: false,
+                        mensagem: 'Código interno já existe para esta empresa'
+                    });
+                }
             }
 
             // Inserir novo produto
             const consultaInsercao = `
                 INSERT INTO produtos (
-                    nome, codigo_interno, descricao, unidade_medida, 
-                    preco_unitario, categoria_id, tipo_id, empresa_id, criado_por
+                    empresa_id, fazenda_id, tipo_id, codigo_interno, codigo_barras,
+                    nome, descricao, numero_serie, marca, modelo, ano_fabricacao,
+                    valor_aquisicao, data_aquisicao, fornecedor_id, categoria_produto,
+                    status, observacoes, criado_por
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
                 RETURNING 
-                    id, nome, codigo_interno, descricao, unidade_medida,
-                    preco_unitario, categoria_id, tipo_id, ativo, criado_em
+                    id, empresa_id, fazenda_id, tipo_id, codigo_interno, codigo_barras,
+                    nome, descricao, numero_serie, marca, modelo, ano_fabricacao,
+                    valor_aquisicao, data_aquisicao, fornecedor_id, categoria_produto,
+                    status, observacoes, ativo, criado_em
             `;
 
             const novoProduto = await query(consultaInsercao, [
-                nome.trim(),
-                codigo_interno.trim(),
-                descricao?.trim() || '',
-                unidade_medida?.trim() || 'UN',
-                preco_unitario || 0,
-                categoria_id || null,
-                tipo_id || null,
                 empresa_id,
+                fazenda_id,
+                tipo_id,
+                codigo_interno?.trim() || null,
+                codigo_barras?.trim() || null,
+                nome.trim(),
+                descricao?.trim() || null,
+                numero_serie?.trim() || null,
+                marca?.trim() || null,
+                modelo?.trim() || null,
+                ano_fabricacao || null,
+                valor_aquisicao || null,
+                data_aquisicao || null,
+                fornecedor_id || null,
+                categoria_produto,
+                status,
+                observacoes?.trim() || null,
                 usuarioId
             ]);
 
@@ -231,6 +294,7 @@ const produtosController = {
             });
 
         } catch (error) {
+            console.error('Erro ao criar produto:', error);
             next(error);
         }
     },
@@ -242,7 +306,24 @@ const produtosController = {
         try {
             const { id } = req.params;
             const { empresa_id } = req.usuario;
-            const { nome, codigo_interno, descricao, unidade_medida, preco_unitario, categoria_id, tipo_id } = req.body;
+            const { 
+                fazenda_id,
+                tipo_id,
+                codigo_interno,
+                codigo_barras,
+                nome,
+                descricao,
+                numero_serie,
+                marca,
+                modelo,
+                ano_fabricacao,
+                valor_aquisicao,
+                data_aquisicao,
+                fornecedor_id,
+                categoria_produto,
+                status,
+                observacoes
+            } = req.body;
             const usuarioId = req.usuario.id;
 
             // Verificar se o produto existe
@@ -283,30 +364,49 @@ const produtosController = {
             const consultaAtualizacao = `
                 UPDATE produtos 
                 SET 
-                    nome = $1,
-                    codigo_interno = $2,
-                    descricao = $3,
-                    unidade_medida = $4,
-                    preco_unitario = $5,
-                    categoria_id = $6,
-                    tipo_id = $7,
-                    atualizado_por = $8,
+                    fazenda_id = $1,
+                    tipo_id = $2,
+                    codigo_interno = $3,
+                    codigo_barras = $4,
+                    nome = $5,
+                    descricao = $6,
+                    numero_serie = $7,
+                    marca = $8,
+                    modelo = $9,
+                    ano_fabricacao = $10,
+                    valor_aquisicao = $11,
+                    data_aquisicao = $12,
+                    fornecedor_id = $13,
+                    categoria_produto = $14,
+                    status = $15,
+                    observacoes = $16,
+                    atualizado_por = $17,
                     atualizado_em = CURRENT_TIMESTAMP
-                WHERE id = $9 AND empresa_id = $10 AND ativo = true
+                WHERE id = $18 AND empresa_id = $19 AND ativo = true
                 RETURNING 
-                    id, nome, codigo_interno, descricao, unidade_medida,
-                    preco_unitario, categoria_id, tipo_id, ativo, 
-                    criado_em, atualizado_em
+                    id, empresa_id, fazenda_id, tipo_id, codigo_interno, codigo_barras,
+                    nome, descricao, numero_serie, marca, modelo, ano_fabricacao,
+                    valor_aquisicao, data_aquisicao, fornecedor_id, categoria_produto,
+                    status, observacoes, ativo, criado_em, atualizado_em
             `;
 
             const produtoAtualizado = await query(consultaAtualizacao, [
-                nome?.trim() || produto.nome,
-                codigo_interno?.trim() || produto.codigo_interno,
-                descricao?.trim() || produto.descricao || '',
-                unidade_medida?.trim() || produto.unidade_medida || 'UN',
-                preco_unitario !== undefined ? preco_unitario : produto.preco_unitario,
-                categoria_id !== undefined ? categoria_id : produto.categoria_id,
+                fazenda_id !== undefined ? fazenda_id : produto.fazenda_id,
                 tipo_id !== undefined ? tipo_id : produto.tipo_id,
+                codigo_interno !== undefined ? codigo_interno?.trim() : produto.codigo_interno,
+                codigo_barras !== undefined ? codigo_barras?.trim() : produto.codigo_barras,
+                nome !== undefined ? nome?.trim() : produto.nome,
+                descricao !== undefined ? descricao?.trim() : produto.descricao,
+                numero_serie !== undefined ? numero_serie?.trim() : produto.numero_serie,
+                marca !== undefined ? marca?.trim() : produto.marca,
+                modelo !== undefined ? modelo?.trim() : produto.modelo,
+                ano_fabricacao !== undefined ? ano_fabricacao : produto.ano_fabricacao,
+                valor_aquisicao !== undefined ? valor_aquisicao : produto.valor_aquisicao,
+                data_aquisicao !== undefined ? data_aquisicao : produto.data_aquisicao,
+                fornecedor_id !== undefined ? fornecedor_id : produto.fornecedor_id,
+                categoria_produto !== undefined ? categoria_produto : produto.categoria_produto,
+                status !== undefined ? status : produto.status,
+                observacoes !== undefined ? observacoes?.trim() : produto.observacoes,
                 usuarioId,
                 id,
                 empresa_id
