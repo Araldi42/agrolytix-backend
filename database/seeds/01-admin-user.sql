@@ -2,7 +2,7 @@
 -- Senha: admin123 (hash bcrypt)
 
 -- Primeiro, vamos garantir que existe uma empresa padrão
-INSERT INTO empresas (razao_social, nome_fantasia, cnpj, email, telefone, endereco, cidade, estado, cep, ativo)
+INSERT INTO empresas (razao_social, nome_fantasia, cnpj, email, telefone, endereco_completo, cidade, estado, cep, ativo)
 VALUES (
     'Agrolytix Ltda',
     'Agrolytix',

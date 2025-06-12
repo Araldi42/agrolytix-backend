@@ -138,7 +138,7 @@ if (-not (Wait-ForService "http://localhost:3000/api/saude" "Health Check")) {
 }
 
 # 7. CONFIGURAR USUÁRIO ADMIN
-Write-Host "`n👤 7. CONFIGURANDO USUÁRIO ADMIN..." -ForegroundColor Cyan
+Write-Host "`n👤 7. CONFIGURANDO USUÁRIO ADMIN.." -ForegroundColor Cyan
 
 if (Test-Path "scripts/setup-admin.ps1") {
     & "scripts/setup-admin.ps1"
@@ -150,8 +150,9 @@ if (Test-Path "scripts/setup-admin.ps1") {
     Write-Host "⚠️ Script setup-admin.ps1 não encontrado" -ForegroundColor Yellow
     Write-Host "   Configurando manualmente..." -ForegroundColor Gray
     
-    $updateQuery = "UPDATE usuarios SET senha = '`$2b`$10`$/gZHrGgR/5XmStju61NzPOClTwsAJWYRH5b4zeG.c246/W6sl1XZe', perfil_id = 1 WHERE email = 'admin@agrolytix.com';"
-    docker-compose exec postgres psql -U agrolytix_user -d agrolytix_db -c $updateQuery
+    $senha = "$2b$10$/gZHrGgR/5XmStju61NzPOClTwsAJWYRH5b4zeG.c246/W6sl1XZe"
+    $updateQuery = "UPDATE usuarios SET senha = ''$senha'', perfil_id = 1 WHERE email = ''admin@agrolytix.com'';"
+    docker-compose exec postgres psql -U agrolytix_user -d agrolytix_db -c "$updateQuery"
 }
 
 # 8. VERIFICAR STATUS
