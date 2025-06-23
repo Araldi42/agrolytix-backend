@@ -1,308 +1,464 @@
 /**
- * Model Empresa
- * Representa empresas no sistema multi-tenant
+ * Model de Empresa
+ * Gerencia as empresas clientes do SaaS multi-tenant
+ * Entidade raiz da hierarquia: Empresa → Fazendas → Setores
  */
 
 const BaseModel = require('./BaseModel');
+const { query, getClient } = require('../config/database');
 
 class Empresa extends BaseModel {
     constructor() {
         super('empresas', 'id');
-        
+
+        // Campos que podem ser preenchidos em massa
         this.fillable = [
-            'nome_fantasia', 'razao_social', 'cnpj', 'inscricao_estadual',
-            'inscricao_municipal', 'endereco', 'cidade', 'estado', 'cep',
-            'telefone', 'email', 'website', 'logo_url', 'tipo_pessoa',
-            'area_atuacao', 'plano_id', 'configuracoes'
+            'razao_social', 'nome_fantasia', 'cnpj', 'inscricao_estadual',
+            'email', 'telefone', 'endereco_completo', 'cep', 'cidade', 'estado',
+            'plano_assinatura', 'data_vencimento_plano'
         ];
 
-        this.hidden = ['configuracoes_sistema'];
-
+        // Conversões de tipo automáticas
         this.casts = {
-            ativo: 'boolean',
-            configuracoes: 'json',
-            criado_em: 'date',
-            atualizado_em: 'date'
+            'data_vencimento_plano': 'date',
+            'ativo': 'boolean'
+        };
+
+        // Relacionamentos
+        this.relationships = {
+            fazendas: { table: 'fazendas', foreign_key: 'empresa_id', local_key: 'id' },
+            usuarios: { table: 'usuarios', foreign_key: 'empresa_id', local_key: 'id' }
         };
     }
 
     /**
-     * Buscar empresa com estatísticas
+     * Buscar todas as empresas (apenas para admin sistema)
      */
-    async findWithStats(id) {
-        const sql = `
-            SELECT 
-                e.*,
-                p.nome as plano_nome,
-                p.preco as plano_preco,
-                COUNT(DISTINCT f.id) as total_fazendas,
-                COUNT(DISTINCT u.id) as total_usuarios,
-                COUNT(DISTINCT pr.id) as total_produtos,
-                COUNT(DISTINCT m.id) as total_movimentacoes_mes
-            FROM empresas e
-            LEFT JOIN planos p ON e.plano_id = p.id
-            LEFT JOIN fazendas f ON e.id = f.empresa_id AND f.ativo = true
-            LEFT JOIN usuarios u ON e.id = u.empresa_id AND u.ativo = true
-            LEFT JOIN produtos pr ON e.id = pr.empresa_id AND pr.ativo = true
-            LEFT JOIN movimentacoes m ON e.id = m.empresa_id AND m.ativo = true 
-                AND m.criado_em >= DATE_TRUNC('month', CURRENT_DATE)
-            WHERE e.id = $1
-            GROUP BY e.id, p.nome, p.preco
-        `;
+    async findAll(options = {}) {
+        const {
+            search = null,
+            plano = null,
+            ativo = true,
+            vencimento_proximo = false,
+            page = 1,
+            limit = 20
+        } = options;
 
-        const result = await this.customQuery(sql, [id]);
-        return result.length > 0 ? result[0] : null;
-    }
+        const offset = (page - 1) * limit;
+        let paramIndex = 1;
+        const params = [];
+        const conditions = [];
 
-    /**
-     * Buscar empresas com filtros avançados
-     */
-    async findWithFilters(filters = {}, options = {}) {
-        const { plano, estado, areaAtuacao, ativo = true, ...baseOptions } = options;
-        
         let sql = `
             SELECT 
-                e.*,
-                p.nome as plano_nome,
-                p.preco as plano_preco,
+                e.id, e.razao_social, e.nome_fantasia, e.cnpj,
+                e.email, e.telefone, e.cidade, e.estado,
+                e.plano_assinatura, e.data_vencimento_plano, e.ativo, e.criado_em,
                 COUNT(DISTINCT f.id) as total_fazendas,
-                COUNT(DISTINCT u.id) as total_usuarios
+                COUNT(DISTINCT u.id) as total_usuarios,
+                COUNT(DISTINCT p.id) as total_produtos,
+                CASE 
+                    WHEN e.data_vencimento_plano <= CURRENT_DATE THEN 'VENCIDO'
+                    WHEN e.data_vencimento_plano <= CURRENT_DATE + INTERVAL '7 days' THEN 'VENCENDO'
+                    ELSE 'ATIVO'
+                END as status_assinatura
             FROM empresas e
-            LEFT JOIN planos p ON e.plano_id = p.id
             LEFT JOIN fazendas f ON e.id = f.empresa_id AND f.ativo = true
             LEFT JOIN usuarios u ON e.id = u.empresa_id AND u.ativo = true
-            WHERE e.ativo = $1
+            LEFT JOIN produtos p ON e.id = p.empresa_id AND p.ativo = true
         `;
 
-        const params = [ativo];
-        let paramIndex = 2;
+        // Filtros dinâmicos
+        if (ativo !== null) {
+            conditions.push(`e.ativo = $${paramIndex}`);
+            params.push(ativo);
+            paramIndex++;
+        }
+
+        if (search) {
+            conditions.push(`(LOWER(e.razao_social) LIKE LOWER($${paramIndex}) OR LOWER(e.nome_fantasia) LIKE LOWER($${paramIndex}))`);
+            params.push(`%${search}%`);
+            paramIndex++;
+        }
 
         if (plano) {
-            sql += ` AND e.plano_id = $${paramIndex}`;
+            conditions.push(`e.plano_assinatura = $${paramIndex}`);
             params.push(plano);
             paramIndex++;
         }
 
-        if (estado) {
-            sql += ` AND e.estado = $${paramIndex}`;
-            params.push(estado);
-            paramIndex++;
+        if (vencimento_proximo) {
+            conditions.push(`e.data_vencimento_plano <= CURRENT_DATE + INTERVAL '30 days'`);
         }
 
-        if (areaAtuacao) {
-            sql += ` AND e.area_atuacao = $${paramIndex}`;
-            params.push(areaAtuacao);
-            paramIndex++;
+        if (conditions.length > 0) {
+            sql += ` WHERE ${conditions.join(' AND ')}`;
         }
 
-        if (filters.nome) {
-            sql += ` AND (e.nome_fantasia ILIKE $${paramIndex} OR e.razao_social ILIKE $${paramIndex})`;
-            params.push(`%${filters.nome}%`);
-            paramIndex++;
-        }
+        sql += ` GROUP BY e.id`;
+        sql += ` ORDER BY e.razao_social`;
 
-        sql += ` GROUP BY e.id, p.nome, p.preco`;
-        sql += ` ORDER BY e.nome_fantasia`;
+        // Paginação
+        sql += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+        params.push(limit, offset);
 
-        if (baseOptions.limit) {
-            sql += ` LIMIT $${paramIndex}`;
-            params.push(baseOptions.limit);
-            paramIndex++;
-        }
+        const result = await query(sql, params);
+        return result.rows.map(row => this.castAttributes(row));
+    }
 
-        if (baseOptions.offset) {
-            sql += ` OFFSET $${paramIndex}`;
-            params.push(baseOptions.offset);
-        }
+    /**
+     * Buscar empresa por ID com estatísticas completas
+     */
+    async findByIdWithStats(id) {
+        const sql = `
+            SELECT 
+                e.*,
+                COUNT(DISTINCT f.id) as total_fazendas,
+                COUNT(DISTINCT u.id) as total_usuarios,
+                COUNT(DISTINCT p.id) as total_produtos,
+                COUNT(DISTINCT s.id) as total_setores,
+                COALESCE(SUM(est.quantidade_atual), 0) as quantidade_total_estoque,
+                COALESCE(SUM(est.valor_total), 0) as valor_total_estoque,
+                COUNT(DISTINCT sf.id) as total_safras,
+                CASE 
+                    WHEN e.data_vencimento_plano <= CURRENT_DATE THEN 'VENCIDO'
+                    WHEN e.data_vencimento_plano <= CURRENT_DATE + INTERVAL '7 days' THEN 'VENCENDO'
+                    ELSE 'ATIVO'
+                END as status_assinatura,
+                (e.data_vencimento_plano - CURRENT_DATE) as dias_para_vencimento
+            FROM empresas e
+            LEFT JOIN fazendas f ON e.id = f.empresa_id AND f.ativo = true
+            LEFT JOIN usuarios u ON e.id = u.empresa_id AND u.ativo = true
+            LEFT JOIN produtos p ON e.id = p.empresa_id AND p.ativo = true
+            LEFT JOIN setores s ON f.id = s.fazenda_id AND s.ativo = true
+            LEFT JOIN estoque est ON s.id = est.setor_id
+            LEFT JOIN safras sf ON f.id = sf.fazenda_id AND sf.ativo = true
+            WHERE e.id = $1 AND e.ativo = true
+            GROUP BY e.id
+        `;
 
-        return await this.customQuery(sql, params);
+        const result = await query(sql, [id]);
+        return result.rows.length > 0 ? this.castAttributes(result.rows[0]) : null;
     }
 
     /**
      * Verificar se CNPJ é único
      */
-    async isCnpjUnique(cnpj, excludeId = null) {
-        const where = { cnpj, ativo: true };
+    async isCNPJUnique(cnpj, excludeId = null) {
+        if (!cnpj) return true; // CNPJ é opcional
+
+        let sql = `SELECT id FROM empresas WHERE cnpj = $1 AND ativo = true`;
+        const params = [cnpj];
 
         if (excludeId) {
-            where.id = { operator: '!=', value: excludeId };
+            sql += ` AND id != $2`;
+            params.push(excludeId);
         }
 
-        return !(await this.exists(where));
+        const result = await query(sql, params);
+        return result.rows.length === 0;
     }
 
     /**
-     * Obter dashboard da empresa
+     * Buscar empresas com vencimento próximo
      */
-    async getDashboard(empresaId) {
+    async findComVencimentoProximo(dias = 30) {
         const sql = `
             SELECT 
-                -- Totais gerais
-                COUNT(DISTINCT f.id) as total_fazendas,
-                COUNT(DISTINCT s.id) as total_setores,
-                COUNT(DISTINCT u.id) as total_usuarios,
-                COUNT(DISTINCT pr.id) as total_produtos,
-                
-                -- Estatísticas de estoque
-                COALESCE(SUM(est.quantidade_atual), 0) as estoque_total_quantidade,
-                COALESCE(SUM(est.valor_unitario_medio * est.quantidade_atual), 0) as estoque_valor_total,
-                COUNT(CASE WHEN est.quantidade_atual <= t.estoque_minimo THEN 1 END) as produtos_estoque_baixo,
-                
-                -- Movimentações do mês
-                COUNT(CASE WHEN m.criado_em >= DATE_TRUNC('month', CURRENT_DATE) THEN 1 END) as movimentacoes_mes,
-                COALESCE(SUM(CASE WHEN m.criado_em >= DATE_TRUNC('month', CURRENT_DATE) THEN m.valor_total END), 0) as valor_movimentacoes_mes,
-                
-                -- Usuários ativos hoje
-                COUNT(CASE WHEN ua.ultimo_acesso >= CURRENT_DATE THEN 1 END) as usuarios_ativos_hoje
-                
+                e.id, e.razao_social, e.nome_fantasia, e.email,
+                e.plano_assinatura, e.data_vencimento_plano,
+                (e.data_vencimento_plano - CURRENT_DATE) as dias_para_vencimento,
+                COUNT(DISTINCT u.id) as total_usuarios
             FROM empresas e
-            LEFT JOIN fazendas f ON e.id = f.empresa_id AND f.ativo = true
-            LEFT JOIN setores s ON f.id = s.fazenda_id AND s.ativo = true
             LEFT JOIN usuarios u ON e.id = u.empresa_id AND u.ativo = true
-            LEFT JOIN produtos pr ON e.id = pr.empresa_id AND pr.ativo = true
-            LEFT JOIN estoque est ON pr.id = est.produto_id
-            LEFT JOIN tipos t ON pr.tipo_id = t.id
-            LEFT JOIN movimentacoes m ON e.id = m.empresa_id AND m.ativo = true
-            LEFT JOIN usuarios ua ON e.id = ua.empresa_id AND ua.ativo = true
-            WHERE e.id = $1
+            WHERE e.ativo = true 
+                AND e.data_vencimento_plano IS NOT NULL
+                AND e.data_vencimento_plano <= CURRENT_DATE + INTERVAL '$1 days'
+                AND e.data_vencimento_plano >= CURRENT_DATE
             GROUP BY e.id
+            ORDER BY e.data_vencimento_plano ASC
         `;
 
-        const result = await this.customQuery(sql, [empresaId]);
-        return result.length > 0 ? result[0] : {};
+        const result = await query(sql, [dias]);
+        return result.rows;
     }
 
     /**
-     * Obter estatísticas de uso por período
+     * Buscar empresas vencidas
      */
-    async getEstatisticasUso(empresaId, dataInicio, dataFim) {
+    async findVencidas() {
         const sql = `
             SELECT 
-                DATE_TRUNC('day', m.criado_em) as data,
-                COUNT(m.id) as total_movimentacoes,
-                COALESCE(SUM(m.valor_total), 0) as valor_total,
-                COUNT(DISTINCT m.usuario_criacao) as usuarios_ativos
-            FROM movimentacoes m
-            WHERE m.empresa_id = $1 
-                AND m.criado_em BETWEEN $2 AND $3
-                AND m.ativo = true
-            GROUP BY DATE_TRUNC('day', m.criado_em)
-            ORDER BY data DESC
-        `;
-
-        return await this.customQuery(sql, [empresaId, dataInicio, dataFim]);
-    }
-
-    /**
-     * Configurar empresa
-     */
-    async updateConfiguracoes(id, configuracoes, userId) {
-        const empresa = await this.findById(id);
-        if (!empresa) return null;
-
-        const novasConfiguracoes = {
-            ...empresa.configuracoes,
-            ...configuracoes
-        };
-
-        return await this.update(id, { configuracoes: novasConfiguracoes }, userId);
-    }
-
-    /**
-     * Validar limites do plano
-     */
-    async validarLimitesPlano(empresaId) {
-        const sql = `
-            SELECT 
-                e.id as empresa_id,
-                p.nome as plano_nome,
-                p.limite_usuarios,
-                p.limite_fazendas,
-                p.limite_produtos,
-                COUNT(DISTINCT u.id) as usuarios_atuais,
-                COUNT(DISTINCT f.id) as fazendas_atuais,
-                COUNT(DISTINCT pr.id) as produtos_atuais
+                e.id, e.razao_social, e.nome_fantasia, e.email,
+                e.plano_assinatura, e.data_vencimento_plano,
+                (CURRENT_DATE - e.data_vencimento_plano) as dias_vencido,
+                COUNT(DISTINCT u.id) as total_usuarios
             FROM empresas e
-            INNER JOIN planos p ON e.plano_id = p.id
             LEFT JOIN usuarios u ON e.id = u.empresa_id AND u.ativo = true
-            LEFT JOIN fazendas f ON e.id = f.empresa_id AND f.ativo = true
-            LEFT JOIN produtos pr ON e.id = pr.empresa_id AND pr.ativo = true
-            WHERE e.id = $1
-            GROUP BY e.id, p.nome, p.limite_usuarios, p.limite_fazendas, p.limite_produtos
+            WHERE e.ativo = true 
+                AND e.data_vencimento_plano IS NOT NULL
+                AND e.data_vencimento_plano < CURRENT_DATE
+            GROUP BY e.id
+            ORDER BY e.data_vencimento_plano ASC
         `;
 
-        const result = await this.customQuery(sql, [empresaId]);
-        
-        if (result.length === 0) return null;
-
-        const dados = result[0];
-        
-        return {
-            empresa_id: dados.empresa_id,
-            plano_nome: dados.plano_nome,
-            limites: {
-                usuarios: {
-                    limite: dados.limite_usuarios,
-                    atual: parseInt(dados.usuarios_atuais),
-                    disponivel: dados.limite_usuarios - parseInt(dados.usuarios_atuais),
-                    excedido: parseInt(dados.usuarios_atuais) >= dados.limite_usuarios
-                },
-                fazendas: {
-                    limite: dados.limite_fazendas,
-                    atual: parseInt(dados.fazendas_atuais),
-                    disponivel: dados.limite_fazendas - parseInt(dados.fazendas_atuais),
-                    excedido: parseInt(dados.fazendas_atuais) >= dados.limite_fazendas
-                },
-                produtos: {
-                    limite: dados.limite_produtos,
-                    atual: parseInt(dados.produtos_atuais),
-                    disponivel: dados.limite_produtos - parseInt(dados.produtos_atuais),
-                    excedido: parseInt(dados.produtos_atuais) >= dados.limite_produtos
-                }
-            }
-        };
+        const result = await query(sql);
+        return result.rows;
     }
 
     /**
-     * Listar empresas para admin do sistema
+     * Obter estatísticas gerais do sistema
      */
-    async findForAdmin(options = {}) {
+    async getEstatisticasGerais() {
         const sql = `
             SELECT 
-                e.*,
-                p.nome as plano_nome,
-                p.preco as plano_preco,
-                COUNT(DISTINCT u.id) as total_usuarios,
-                COUNT(DISTINCT f.id) as total_fazendas,
-                COUNT(DISTINCT pr.id) as total_produtos,
-                MAX(u.ultimo_acesso) as ultimo_acesso_usuario
-            FROM empresas e
-            LEFT JOIN planos p ON e.plano_id = p.id
-            LEFT JOIN usuarios u ON e.id = u.empresa_id
-            LEFT JOIN fazendas f ON e.id = f.empresa_id AND f.ativo = true
-            LEFT JOIN produtos pr ON e.id = pr.empresa_id AND pr.ativo = true
-            GROUP BY e.id, p.nome, p.preco
-            ORDER BY e.criado_em DESC
+                COUNT(*) as total_empresas,
+                COUNT(CASE WHEN ativo = true THEN 1 END) as empresas_ativas,
+                COUNT(CASE WHEN plano_assinatura = 'basico' THEN 1 END) as plano_basico,
+                COUNT(CASE WHEN plano_assinatura = 'premium' THEN 1 END) as plano_premium,
+                COUNT(CASE WHEN plano_assinatura = 'enterprise' THEN 1 END) as plano_enterprise,
+                COUNT(CASE WHEN data_vencimento_plano < CURRENT_DATE THEN 1 END) as empresas_vencidas,
+                COUNT(CASE WHEN data_vencimento_plano <= CURRENT_DATE + INTERVAL '30 days' AND data_vencimento_plano >= CURRENT_DATE THEN 1 END) as vencimento_proximo
+            FROM empresas
+            WHERE ativo = true
         `;
 
-        return await this.customQuery(sql);
+        const result = await query(sql);
+        return result.rows[0];
     }
 
     /**
-     * Suspender/Reativar empresa
+     * Obter estatísticas por período
      */
-    async toggleStatus(id, userId, motivo = '') {
-        const empresa = await this.findById(id);
-        if (!empresa) return null;
+    async getEstatisticasPorPeriodo(periodo = 'mes') {
+        let intervalCondition = '';
 
-        const novoStatus = !empresa.ativo;
-        const observacao = `Status alterado para ${novoStatus ? 'ATIVO' : 'SUSPENSO'}. Motivo: ${motivo}`;
+        switch (periodo) {
+            case 'semana':
+                intervalCondition = "DATE_TRUNC('week', criado_em) = DATE_TRUNC('week', CURRENT_DATE)";
+                break;
+            case 'mes':
+                intervalCondition = "DATE_TRUNC('month', criado_em) = DATE_TRUNC('month', CURRENT_DATE)";
+                break;
+            case 'ano':
+                intervalCondition = "DATE_TRUNC('year', criado_em) = DATE_TRUNC('year', CURRENT_DATE)";
+                break;
+            default:
+                intervalCondition = "DATE_TRUNC('month', criado_em) = DATE_TRUNC('month', CURRENT_DATE)";
+        }
 
-        return await this.update(id, { 
-            ativo: novoStatus,
-            observacoes: observacao
-        }, userId);
+        const sql = `
+            SELECT 
+                plano_assinatura,
+                COUNT(*) as total_cadastros,
+                COUNT(CASE WHEN ativo = true THEN 1 END) as cadastros_ativos
+            FROM empresas
+            WHERE ${intervalCondition}
+            GROUP BY plano_assinatura
+            ORDER BY total_cadastros DESC
+        `;
+
+        const result = await query(sql);
+        return result.rows;
+    }
+
+    /**
+     * Renovar assinatura da empresa
+     */
+    async renovarAssinatura(id, novoPlano, diasRenovacao = 365) {
+        const sql = `
+            UPDATE empresas 
+            SET plano_assinatura = $1,
+                data_vencimento_plano = COALESCE(
+                    CASE WHEN data_vencimento_plano > CURRENT_DATE 
+                         THEN data_vencimento_plano + INTERVAL '$2 days'
+                         ELSE CURRENT_DATE + INTERVAL '$2 days'
+                    END
+                ),
+                atualizado_em = NOW()
+            WHERE id = $3 AND ativo = true
+            RETURNING id, razao_social, plano_assinatura, data_vencimento_plano
+        `;
+
+        const result = await query(sql, [novoPlano, diasRenovacao, id]);
+        return result.rows.length > 0 ? this.castAttributes(result.rows[0]) : null;
+    }
+
+    /**
+     * Suspender empresa por vencimento
+     */
+    async suspenderPorVencimento(id, motivo = 'Assinatura vencida') {
+        const client = await getClient();
+
+        try {
+            await client.query('BEGIN');
+
+            // Desativar empresa
+            await client.query(`
+                UPDATE empresas 
+                SET ativo = false, 
+                    observacoes = COALESCE(observacoes, '') || ' | SUSPENSA: ' || $1,
+                    atualizado_em = NOW()
+                WHERE id = $2
+            `, [motivo, id]);
+
+            // Desativar usuários da empresa
+            await client.query(`
+                UPDATE usuarios 
+                SET ativo = false, 
+                    atualizado_em = NOW()
+                WHERE empresa_id = $1
+            `, [id]);
+
+            await client.query('COMMIT');
+            return true;
+
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
+        }
+    }
+
+    /**
+     * Reativar empresa
+     */
+    async reativar(id, novaDataVencimento) {
+        const client = await getClient();
+
+        try {
+            await client.query('BEGIN');
+
+            // Reativar empresa
+            const empresaResult = await client.query(`
+                UPDATE empresas 
+                SET ativo = true,
+                    data_vencimento_plano = $1,
+                    atualizado_em = NOW()
+                WHERE id = $2
+                RETURNING *
+            `, [novaDataVencimento, id]);
+
+            if (empresaResult.rows.length === 0) {
+                throw new Error('Empresa não encontrada');
+            }
+
+            // Reativar usuários da empresa
+            await client.query(`
+                UPDATE usuarios 
+                SET ativo = true,
+                    atualizado_em = NOW()
+                WHERE empresa_id = $1
+            `, [id]);
+
+            await client.query('COMMIT');
+            return this.castAttributes(empresaResult.rows[0]);
+
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
+        }
+    }
+
+    /**
+     * Buscar fazendas da empresa
+     */
+    async getFazendas(empresaId, limit = 10) {
+        const sql = `
+            SELECT 
+                f.id, f.nome, f.codigo, f.cidade, f.estado,
+                f.area_total_hectares, f.tipo_producao,
+                COUNT(DISTINCT s.id) as total_setores,
+                COUNT(DISTINCT p.id) as total_produtos
+            FROM fazendas f
+            LEFT JOIN setores s ON f.id = s.fazenda_id AND s.ativo = true
+            LEFT JOIN produtos p ON f.id = p.fazenda_id AND p.ativo = true
+            WHERE f.empresa_id = $1 AND f.ativo = true
+            GROUP BY f.id
+            ORDER BY f.nome
+            LIMIT $2
+        `;
+
+        const result = await query(sql, [empresaId, limit]);
+        return result.rows;
+    }
+
+    /**
+     * Buscar usuários da empresa
+     */
+    async getUsuarios(empresaId, limit = 10) {
+        const sql = `
+            SELECT 
+                u.id, u.nome, u.login, u.email, u.cargo,
+                u.ultimo_acesso, u.criado_em,
+                p.nome as perfil_nome, p.nivel_hierarquia
+            FROM usuarios u
+            INNER JOIN perfis_usuario p ON u.perfil_id = p.id
+            WHERE u.empresa_id = $1 AND u.ativo = true
+            ORDER BY u.nome
+            LIMIT $2
+        `;
+
+        const result = await query(sql, [empresaId, limit]);
+        return result.rows;
+    }
+
+    /**
+     * Validar dados da empresa
+     */
+    validate(data) {
+        const errors = [];
+
+        if (!data.razao_social || data.razao_social.trim().length === 0) {
+            errors.push('Razão social é obrigatória');
+        }
+
+        if (data.razao_social && data.razao_social.length > 255) {
+            errors.push('Razão social deve ter no máximo 255 caracteres');
+        }
+
+        if (data.cnpj) {
+            // Validação básica de formato CNPJ
+            const cnpjLimpo = data.cnpj.replace(/[^\d]/g, '');
+            if (cnpjLimpo.length !== 14) {
+                errors.push('CNPJ deve ter 14 dígitos');
+            }
+        }
+
+        if (data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) {
+            errors.push('Email inválido');
+        }
+
+        const planosValidos = ['basico', 'premium', 'enterprise'];
+        if (data.plano_assinatura && !planosValidos.includes(data.plano_assinatura)) {
+            errors.push('Plano de assinatura inválido');
+        }
+
+        const estadosValidos = [
+            'AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA',
+            'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN',
+            'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO'
+        ];
+
+        if (data.estado && !estadosValidos.includes(data.estado)) {
+            errors.push('Estado inválido');
+        }
+
+        if (data.data_vencimento_plano) {
+            const dataVencimento = new Date(data.data_vencimento_plano);
+            const hoje = new Date();
+            hoje.setHours(0, 0, 0, 0);
+
+            if (dataVencimento < hoje) {
+                errors.push('Data de vencimento não pode ser anterior a hoje');
+            }
+        }
+
+        return errors;
     }
 }
 
-module.exports = new Empresa(); 
+module.exports = Empresa;

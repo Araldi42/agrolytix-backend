@@ -28,9 +28,9 @@ router.get('/verificar', autenticacaoController.verificar);
 /**
  * @route POST /api/auth/logout
  * @desc Logout do usuário
- * @access Public
+ * @access Private
  */
-router.post('/logout', autenticacaoController.logout);
+router.post('/logout', autenticacao, autenticacaoController.logout);
 
 /**
  * @route POST /api/auth/renovar-token
@@ -38,5 +38,54 @@ router.post('/logout', autenticacaoController.logout);
  * @access Private
  */
 router.post('/renovar-token', autenticacao, autenticacaoController.renovarToken);
+
+/**
+ * @route POST /api/auth/alterar-senha
+ * @desc Alterar senha do usuário logado
+ * @access Private
+ */
+router.post('/alterar-senha', autenticacao, autenticacaoController.alterarSenha);
+
+/**
+ * @route POST /api/auth/recuperar-senha
+ * @desc Solicitar recuperação de senha
+ * @access Public
+ */
+router.post('/recuperar-senha', autenticacaoController.solicitarRecuperacao);
+
+/**
+ * @route POST /api/auth/redefinir-senha
+ * @desc Redefinir senha com token
+ * @access Public
+ */
+router.post('/redefinir-senha', autenticacaoController.redefinirSenha);
+
+/**
+ * @route GET /api/auth/meu-perfil
+ * @desc Obter perfil do usuário logado
+ * @access Private
+ */
+router.get('/meu-perfil', autenticacao, autenticacaoController.meuPerfil);
+
+/**
+ * @route PUT /api/auth/meu-perfil
+ * @desc Atualizar perfil do usuário logado
+ * @access Private
+ */
+router.put('/meu-perfil', autenticacao, autenticacaoController.atualizarMeuPerfil);
+
+/**
+ * @route GET /api/auth/sessoes
+ * @desc Listar sessões ativas
+ * @access Private
+ */
+router.get('/sessoes', autenticacao, autenticacaoController.sessõesAtivas);
+
+/**
+ * @route GET /api/auth/status-conta
+ * @desc Verificar status da conta
+ * @access Private
+ */
+router.get('/status-conta', autenticacao, autenticacaoController.statusConta);
 
 module.exports = router;

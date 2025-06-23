@@ -1,52 +1,56 @@
-const { query } = require('../config/database');
-const { criarErro } = require('../middlewares/tratadorErros');
-
 /**
- * Controller para operações com tipos
+ * Controller de Tipos Refatorado
+ * Gerencia tipos de produtos/categorias
+ * Usa Repository Pattern com Model para abstração de dados
  */
-const tiposController = {
+
+const BaseController = require('./baseController');
+const Tipo = require('../models/Tipo');
+const ValidationService = require('../services/validationService');
+
+class TiposController extends BaseController {
+    constructor() {
+        super('tipos', 'Tipo');
+        this.tipoModel = new Tipo();
+    }
+
     /**
-     * Buscar todos os tipos
+     * Listar tipos com relacionamentos
      */
-    async buscarTodos(req, res, next) {
+    async listar(req, res, next) {
         try {
-            const consulta = `
-                SELECT 
-                    t.id,
-                    t.nome,
-                    t.descricao,
-                    t.categoria_id,
-                    t.ativo,
-                    t.criado_em,
-                    t.atualizado_em,
-                    c.nome as categoria_nome,
-                    u1.nome as criado_por_nome,
-                    u2.nome as atualizado_por_nome
-                FROM tipos t
-                INNER JOIN categorias c ON t.categoria_id = c.id
-                LEFT JOIN usuarios u1 ON t.criado_por = u1.id
-                LEFT JOIN usuarios u2 ON t.atualizado_por = u2.id
-                WHERE t.ativo = true AND c.ativo = true
-                ORDER BY c.nome, t.nome
-            `;
+            const empresaId = req.usuario.empresa_id;
+            const { pagina, limite, offset } = this.obterParametrosPaginacao(req.query);
 
-            const resultado = await query(consulta);
+            const options = {
+                search: req.query.search,
+                categoria_id: req.query.categoria_id,
+                page: pagina,
+                limit: limite
+            };
 
-            // Enriquecer dados para manter compatibilidade com frontend
-            const dadosEnriquecidos = resultado.rows.map(tipo => ({
-                ...tipo,
-                categoria: {
-                    id: tipo.categoria_id,
-                    nome: tipo.categoria_nome
-                }
-            }));
+            const tipos = await this.tipoModel.findAllWithRelations(empresaId, options);
 
-            res.json(dadosEnriquecidos);
+            // Contar total para paginação
+            const total = await this.tipoModel.count({
+                empresa_id: empresaId || null,
+                ativo: true
+            });
+
+            return this.respostaPaginada(
+                res,
+                tipos,
+                total,
+                pagina,
+                limite,
+                'Tipos listados com sucesso'
+            );
 
         } catch (error) {
+            console.error('Erro ao listar tipos:', error);
             next(error);
         }
-    },
+    }
 
     /**
      * Buscar tipo por ID
@@ -54,137 +58,95 @@ const tiposController = {
     async buscarPorId(req, res, next) {
         try {
             const { id } = req.params;
+            const empresaId = req.usuario.empresa_id;
 
-            const consulta = `
-                SELECT 
-                    t.id,
-                    t.nome,
-                    t.descricao,
-                    t.categoria_id,
-                    t.ativo,
-                    t.criado_em,
-                    t.atualizado_em,
-                    c.nome as categoria_nome,
-                    u1.nome as criado_por_nome,
-                    u2.nome as atualizado_por_nome
-                FROM tipos t
-                INNER JOIN categorias c ON t.categoria_id = c.id
-                LEFT JOIN usuarios u1 ON t.criado_por = u1.id
-                LEFT JOIN usuarios u2 ON t.atualizado_por = u2.id
-                WHERE t.id = $1 AND t.ativo = true AND c.ativo = true
-            `;
+            const tipo = await this.tipoModel.findByIdWithDetails(id, empresaId);
 
-            const resultado = await query(consulta, [id]);
-
-            if (resultado.rows.length === 0) {
-                return res.status(404).json({
-                    message: 'Tipo não encontrado'
-                });
+            if (!tipo) {
+                return this.erroResponse(res, 'Tipo não encontrado', 404);
             }
 
-            const tipo = resultado.rows[0];
-
-            // Enriquecer dados para manter compatibilidade com frontend
-            const dadosEnriquecidos = {
-                ...tipo,
-                categoria: {
-                    id: tipo.categoria_id,
-                    nome: tipo.categoria_nome
-                }
-            };
-
-            res.json(dadosEnriquecidos);
+            return this.sucessoResponse(res, tipo, 'Tipo encontrado');
 
         } catch (error) {
+            console.error('Erro ao buscar tipo:', error);
             next(error);
         }
-    },
+    }
 
     /**
      * Criar novo tipo
      */
     async criar(req, res, next) {
         try {
-            const { nome, categoriaId, descricao } = req.body;
-            const usuarioId = req.usuario.id;
-
-            // Validação básica
-            if (!nome || nome.trim().length === 0) {
-                return res.status(400).json({
-                    message: 'Nome do tipo é obrigatório'
-                });
-            }
-
-            if (!categoriaId) {
-                return res.status(400).json({
-                    message: 'Categoria é obrigatória'
-                });
-            }
-
-            // Verificar se a categoria existe
-            const consultaCategoria = `
-                SELECT id FROM categorias 
-                WHERE id = $1 AND ativo = true
-            `;
-
-            const categoriaExiste = await query(consultaCategoria, [categoriaId]);
-
-            if (categoriaExiste.rows.length === 0) {
-                return res.status(404).json({
-                    message: 'Categoria não encontrada'
-                });
-            }
-
-            // Verificar se já existe tipo com o mesmo nome na mesma categoria
-            const consultaExistente = `
-                SELECT id FROM tipos 
-                WHERE LOWER(nome) = LOWER($1) AND categoria_id = $2 AND ativo = true
-            `;
-
-            const tipoExistente = await query(consultaExistente, [nome.trim(), categoriaId]);
-
-            if (tipoExistente.rows.length > 0) {
-                return res.status(409).json({
-                    message: 'Já existe um tipo com este nome nesta categoria'
-                });
-            }
-
-            // Inserir novo tipo
-            const consultaInsercao = `
-                INSERT INTO tipos (nome, categoria_id, descricao, criado_por)
-                VALUES ($1, $2, $3, $4)
-                RETURNING 
-                    id, nome, descricao, categoria_id, ativo, 
-                    criado_em, criado_por
-            `;
-
-            const novoTipo = await query(consultaInsercao, [
-                nome.trim(),
-                categoriaId,
-                descricao?.trim() || '',
-                usuarioId
+            const dadosLimpos = this.sanitizarDados(req.body, [
+                'nome', 'descricao', 'unidade_medida'
             ]);
 
-            // Buscar dados da categoria para resposta
-            const categoria = await query('SELECT nome FROM categorias WHERE id = $1', [categoriaId]);
+            // Definir empresa automaticamente se usuário não for admin sistema
+            if (req.usuario.empresa_id) {
+                dadosLimpos.empresa_id = req.usuario.empresa_id;
+            }
 
-            const dadosEnriquecidos = {
-                ...novoTipo.rows[0],
-                categoria: {
-                    id: categoriaId,
-                    nome: categoria.rows[0].nome
-                }
-            };
+            // Validações básicas
+            const errosValidacao = this.tipoModel.validate(dadosLimpos);
+            if (errosValidacao.length > 0) {
+                return this.erroResponse(res, 'Dados inválidos', 400, errosValidacao);
+            }
 
-            res.status(201).json({
-                message: 'Tipo criado com sucesso',
-                tipo: dadosEnriquecidos
-            });
+            // Verificar se categoria existe e está ativa
+            const categoriaValida = await ValidationService.verificarCategoriaExistente(
+                dadosLimpos.categoria_id,
+                dadosLimpos.empresa_id
+            );
+
+            if (!categoriaValida) {
+                return this.erroResponse(res, 'Categoria não encontrada ou inativa', 404);
+            }
+
+            // Verificar se nome é único na categoria
+            const isUnique = await this.tipoModel.isNomeUniqueInCategoria(
+                dadosLimpos.nome,
+                dadosLimpos.categoria_id,
+                dadosLimpos.empresa_id
+            );
+
+            if (!isUnique) {
+                return this.erroResponse(res, 'Já existe um tipo com este nome nesta categoria', 409);
+            }
+
+            // Criar tipo
+            dadosLimpos.criado_por = req.usuario.id;
+            const tipo = await this.tipoModel.create(dadosLimpos);
+
+            // Buscar tipo criado com detalhes
+            const tipoCriado = await this.tipoModel.findByIdWithDetails(
+                tipo.id,
+                dadosLimpos.empresa_id
+            );
+
+            // Log de auditoria
+            await this.logarAuditoria(
+                req.usuario.id,
+                'CREATE',
+                'tipos',
+                tipo.id,
+                null,
+                tipoCriado
+            );
+
+            return this.sucessoResponse(
+                res,
+                tipoCriado,
+                'Tipo criado com sucesso',
+                201
+            );
 
         } catch (error) {
+            console.error('Erro ao criar tipo:', error);
             next(error);
         }
-    },
+    }
 
     /**
      * Atualizar tipo
@@ -192,108 +154,87 @@ const tiposController = {
     async atualizar(req, res, next) {
         try {
             const { id } = req.params;
-            const { nome, categoriaId, descricao } = req.body;
-            const usuarioId = req.usuario.id;
+            const empresaId = req.usuario.empresa_id;
 
-            // Validação básica
-            if (!nome || nome.trim().length === 0) {
-                return res.status(400).json({
-                    message: 'Nome do tipo é obrigatório'
-                });
+            // Buscar tipo atual
+            const tipoAtual = await this.tipoModel.findByIdWithDetails(id, empresaId);
+            if (!tipoAtual) {
+                return this.erroResponse(res, 'Tipo não encontrado', 404);
             }
 
-            if (!categoriaId) {
-                return res.status(400).json({
-                    message: 'Categoria é obrigatória'
-                });
+            const dadosLimpos = this.sanitizarDados(req.body, [
+                'nome', 'descricao', 'unidade_medida'
+            ]);
+
+            // Validações básicas
+            const dadosCompletos = { ...tipoAtual, ...dadosLimpos };
+            const errosValidacao = this.tipoModel.validate(dadosCompletos);
+            if (errosValidacao.length > 0) {
+                return this.erroResponse(res, 'Dados inválidos', 400, errosValidacao);
             }
 
-            // Verificar se o tipo existe
-            const consultaExistencia = `
-                SELECT id FROM tipos 
-                WHERE id = $1 AND ativo = true
-            `;
+            // Verificar categoria (se alterada)
+            if (dadosLimpos.categoria_id && dadosLimpos.categoria_id !== tipoAtual.categoria_id) {
+                const categoriaValida = await ValidationService.verificarCategoriaExistente(
+                    dadosLimpos.categoria_id,
+                    tipoAtual.empresa_id
+                );
 
-            const tipoExiste = await query(consultaExistencia, [id]);
-
-            if (tipoExiste.rows.length === 0) {
-                return res.status(404).json({
-                    message: 'Tipo não encontrado'
-                });
+                if (!categoriaValida) {
+                    return this.erroResponse(res, 'Categoria não encontrada ou inativa', 404);
+                }
             }
 
-            // Verificar se a categoria existe
-            const consultaCategoria = `
-                SELECT id FROM categorias 
-                WHERE id = $1 AND ativo = true
-            `;
+            // Verificar nome único na categoria (se nome ou categoria alterados)
+            if ((dadosLimpos.nome && dadosLimpos.nome !== tipoAtual.nome) ||
+                (dadosLimpos.categoria_id && dadosLimpos.categoria_id !== tipoAtual.categoria_id)) {
 
-            const categoriaExiste = await query(consultaCategoria, [categoriaId]);
+                const categoriaId = dadosLimpos.categoria_id || tipoAtual.categoria_id;
+                const nome = dadosLimpos.nome || tipoAtual.nome;
 
-            if (categoriaExiste.rows.length === 0) {
-                return res.status(404).json({
-                    message: 'Categoria não encontrada'
-                });
-            }
+                const isUnique = await this.tipoModel.isNomeUniqueInCategoria(
+                    nome,
+                    categoriaId,
+                    tipoAtual.empresa_id,
+                    id
+                );
 
-            // Verificar se já existe outro tipo com o mesmo nome na mesma categoria
-            const consultaNomeDuplicado = `
-                SELECT id FROM tipos 
-                WHERE LOWER(nome) = LOWER($1) AND categoria_id = $2 AND id != $3 AND ativo = true
-            `;
-
-            const nomeDuplicado = await query(consultaNomeDuplicado, [nome.trim(), categoriaId, id]);
-
-            if (nomeDuplicado.rows.length > 0) {
-                return res.status(409).json({
-                    message: 'Já existe outro tipo com este nome nesta categoria'
-                });
+                if (!isUnique) {
+                    return this.erroResponse(res, 'Já existe outro tipo com este nome nesta categoria', 409);
+                }
             }
 
             // Atualizar tipo
-            const consultaAtualizacao = `
-                UPDATE tipos 
-                SET 
-                    nome = $1,
-                    categoria_id = $2,
-                    descricao = $3,
-                    atualizado_por = $4,
-                    atualizado_em = CURRENT_TIMESTAMP
-                WHERE id = $5 AND ativo = true
-                RETURNING 
-                    id, nome, descricao, categoria_id, ativo,
-                    criado_em, atualizado_em,
-                    criado_por, atualizado_por
-            `;
+            dadosLimpos.atualizado_por = req.usuario.id;
+            await this.tipoModel.update(id, dadosLimpos);
 
-            const tipoAtualizado = await query(consultaAtualizacao, [
-                nome.trim(),
-                categoriaId,
-                descricao?.trim() || '',
-                usuarioId,
-                id
-            ]);
+            // Buscar tipo atualizado
+            const tipoAtualizado = await this.tipoModel.findByIdWithDetails(
+                id,
+                empresaId
+            );
 
-            // Buscar dados da categoria para resposta
-            const categoria = await query('SELECT nome FROM categorias WHERE id = $1', [categoriaId]);
+            // Log de auditoria
+            await this.logarAuditoria(
+                req.usuario.id,
+                'UPDATE',
+                'tipos',
+                id,
+                tipoAtual,
+                tipoAtualizado
+            );
 
-            const dadosEnriquecidos = {
-                ...tipoAtualizado.rows[0],
-                categoria: {
-                    id: categoriaId,
-                    nome: categoria.rows[0].nome
-                }
-            };
-
-            res.json({
-                message: 'Tipo atualizado com sucesso',
-                tipo: dadosEnriquecidos
-            });
+            return this.sucessoResponse(
+                res,
+                tipoAtualizado,
+                'Tipo atualizado com sucesso'
+            );
 
         } catch (error) {
+            console.error('Erro ao atualizar tipo:', error);
             next(error);
         }
-    },
+    }
 
     /**
      * Excluir tipo (soft delete)
@@ -301,57 +242,446 @@ const tiposController = {
     async excluir(req, res, next) {
         try {
             const { id } = req.params;
-            const usuarioId = req.usuario.id;
+            const empresaId = req.usuario.empresa_id;
 
-            // Verificar se o tipo existe
-            const consultaExistencia = `
-                SELECT id FROM tipos 
-                WHERE id = $1 AND ativo = true
-            `;
-
-            const tipoExiste = await query(consultaExistencia, [id]);
-
-            if (tipoExiste.rows.length === 0) {
-                return res.status(404).json({
-                    message: 'Tipo não encontrado'
-                });
+            // Buscar tipo
+            const tipo = await this.tipoModel.findByIdWithDetails(id, empresaId);
+            if (!tipo) {
+                return this.erroResponse(res, 'Tipo não encontrado', 404);
             }
 
-            // Verificar se há ativos usando este tipo
-            const consultaAtivos = `
-                SELECT id FROM ativos 
-                WHERE tipo_id = $1 AND ativo = true
-                LIMIT 1
-            `;
-
-            const ativosVinculados = await query(consultaAtivos, [id]);
-
-            if (ativosVinculados.rows.length > 0) {
-                return res.status(409).json({
-                    message: 'Este tipo está em uso em ativos e não pode ser excluído'
-                });
+            // Verificar se pode ser excluído
+            const canDelete = await this.tipoModel.canDelete(id);
+            if (!canDelete) {
+                return this.erroResponse(
+                    res,
+                    'Este tipo está em uso em produtos e não pode ser excluído',
+                    409
+                );
             }
 
-            // Soft delete do tipo
-            const consultaExclusao = `
-                UPDATE tipos 
-                SET 
-                    ativo = false,
-                    atualizado_por = $1,
-                    atualizado_em = CURRENT_TIMESTAMP
-                WHERE id = $2
-            `;
+            // Soft delete
+            await this.tipoModel.softDelete(id, req.usuario.id);
 
-            await query(consultaExclusao, [usuarioId, id]);
+            // Log de auditoria
+            await this.logarAuditoria(
+                req.usuario.id,
+                'DELETE',
+                'tipos',
+                id,
+                tipo,
+                null
+            );
 
-            res.json({
-                message: 'Tipo excluído com sucesso'
-            });
+            return this.sucessoResponse(res, null, 'Tipo excluído com sucesso');
 
         } catch (error) {
+            console.error('Erro ao excluir tipo:', error);
             next(error);
         }
     }
-};
 
-module.exports = tiposController;
+    /**
+     * Buscar tipos por categoria
+     */
+    async porCategoria(req, res, next) {
+        try {
+            const { categoria_id } = req.params;
+            const empresaId = req.usuario.empresa_id;
+
+            const options = {
+                search: req.query.search,
+                page: parseInt(req.query.page) || 1,
+                limit: Math.min(parseInt(req.query.limit) || 50, 100)
+            };
+
+            const tipos = await this.tipoModel.findByCategoria(categoria_id, empresaId, options);
+
+            return this.sucessoResponse(
+                res,
+                tipos,
+                'Tipos da categoria listados'
+            );
+
+        } catch (error) {
+            console.error('Erro ao buscar tipos por categoria:', error);
+            next(error);
+        }
+    }
+
+    /**
+     * Buscar produtos do tipo
+     */
+    async produtos(req, res, next) {
+        try {
+            const { id } = req.params;
+            const empresaId = req.usuario.empresa_id;
+
+            // Verificar se tipo existe
+            const tipo = await this.tipoModel.findByIdWithDetails(id, empresaId);
+            if (!tipo) {
+                return this.erroResponse(res, 'Tipo não encontrado', 404);
+            }
+
+            const options = {
+                status: req.query.status || 'ativo',
+                categoria_produto: req.query.categoria_produto,
+                limit: parseInt(req.query.limit) || 50
+            };
+
+            const produtos = await this.tipoModel.getProdutos(id, options);
+
+            return this.sucessoResponse(
+                res,
+                produtos,
+                'Produtos do tipo listados'
+            );
+
+        } catch (error) {
+            console.error('Erro ao buscar produtos do tipo:', error);
+            next(error);
+        }
+    }
+
+    /**
+     * Buscar tipos mais utilizados
+     */
+    async maisUtilizados(req, res, next) {
+        try {
+            const empresaId = req.usuario.empresa_id;
+            const limite = parseInt(req.query.limite) || 10;
+
+            const tipos = await this.tipoModel.findMostUsed(empresaId, limite);
+
+            return this.sucessoResponse(
+                res,
+                tipos,
+                'Tipos mais utilizados listados'
+            );
+
+        } catch (error) {
+            console.error('Erro ao buscar tipos mais utilizados:', error);
+            next(error);
+        }
+    }
+
+    /**
+     * Buscar tipos com estoque baixo
+     */
+    async estoqueBaixo(req, res, next) {
+        try {
+            const empresaId = req.usuario.empresa_id;
+
+            if (!empresaId) {
+                return this.erroResponse(res, 'Acesso negado', 403);
+            }
+
+            const tipos = await this.tipoModel.findComEstoqueBaixo(empresaId);
+
+            return this.sucessoResponse(
+                res,
+                tipos,
+                'Tipos com estoque baixo listados'
+            );
+
+        } catch (error) {
+            console.error('Erro ao buscar tipos com estoque baixo:', error);
+            next(error);
+        }
+    }
+
+    /**
+     * Buscar unidades de medida disponíveis
+     */
+    async unidadesMedida(req, res, next) {
+        try {
+            const empresaId = req.usuario.empresa_id;
+
+            const unidades = await this.tipoModel.getUnidadesMedida(empresaId);
+
+            return this.sucessoResponse(
+                res,
+                unidades,
+                'Unidades de medida listadas'
+            );
+
+        } catch (error) {
+            console.error('Erro ao buscar unidades de medida:', error);
+            next(error);
+        }
+    }
+
+    /**
+     * Obter estatísticas dos tipos
+     */
+    async estatisticas(req, res, next) {
+        try {
+            const empresaId = req.usuario.empresa_id;
+
+            const estatisticas = await this.tipoModel.getEstatisticas(empresaId);
+
+            return this.sucessoResponse(
+                res,
+                estatisticas,
+                'Estatísticas dos tipos obtidas'
+            );
+
+        } catch (error) {
+            console.error('Erro ao obter estatísticas:', error);
+            next(error);
+        }
+    }
+
+    /**
+     * Dashboard de tipos - resumo executivo
+     */
+    async dashboard(req, res, next) {
+        try {
+            const empresaId = req.usuario.empresa_id;
+
+            // Buscar dados em paralelo para performance
+            const [
+                estatisticas,
+                maisUtilizados,
+                estoqueBaixo,
+                unidadesMedida
+            ] = await Promise.all([
+                this.tipoModel.getEstatisticas(empresaId),
+                this.tipoModel.findMostUsed(empresaId, 5),
+                this.tipoModel.findComEstoqueBaixo(empresaId),
+                this.tipoModel.getUnidadesMedida(empresaId)
+            ]);
+
+            const dashboard = {
+                estatisticas_gerais: estatisticas,
+                mais_utilizados: maisUtilizados,
+                alertas: {
+                    estoque_baixo: estoqueBaixo.slice(0, 5) // Top 5 com estoque baixo
+                },
+                unidades_medida: unidadesMedida,
+                timestamp: new Date().toISOString()
+            };
+
+            return this.sucessoResponse(
+                res,
+                dashboard,
+                'Dashboard de tipos carregado'
+            );
+
+        } catch (error) {
+            console.error('Erro ao carregar dashboard:', error);
+            next(error);
+        }
+    }
+
+    /**
+     * Buscar tipos globais (disponíveis para todas as empresas)
+     */
+    async globais(req, res, next) {
+        try {
+            const options = {
+                search: req.query.search,
+                categoria_id: req.query.categoria_id,
+                page: parseInt(req.query.page) || 1,
+                limit: parseInt(req.query.limit) || 50
+            };
+
+            // Buscar tipos globais (empresa_id = null)
+            const tipos = await this.tipoModel.findAllWithRelations(null, options);
+
+            return this.sucessoResponse(
+                res,
+                tipos,
+                'Tipos globais listados'
+            );
+
+        } catch (error) {
+            console.error('Erro ao buscar tipos globais:', error);
+            next(error);
+        }
+    }
+
+    /**
+     * Criar tipo global (apenas admin sistema)
+     */
+    async criarGlobal(req, res, next) {
+        try {
+            // Apenas admin sistema pode criar tipos globais
+            if (req.usuario.nivel_hierarquia > 1) {
+                return this.erroResponse(res, 'Acesso negado', 403);
+            }
+
+            const dadosLimpos = this.sanitizarDados(req.body, [
+                'nome', 'descricao', 'unidade_medida'
+            ]);
+
+            // Tipo global não tem empresa_id
+            dadosLimpos.empresa_id = null;
+
+            // Validações básicas
+            const errosValidacao = this.tipoModel.validate(dadosLimpos);
+            if (errosValidacao.length > 0) {
+                return this.erroResponse(res, 'Dados inválidos', 400, errosValidacao);
+            }
+
+            // Verificar se categoria existe (deve ser global também)
+            const categoriaValida = await ValidationService.verificarCategoriaExistente(
+                dadosLimpos.categoria_id,
+                null
+            );
+
+            if (!categoriaValida) {
+                return this.erroResponse(res, 'Categoria global não encontrada', 404);
+            }
+
+            // Verificar se nome é único na categoria global
+            const isUnique = await this.tipoModel.isNomeUniqueInCategoria(
+                dadosLimpos.nome,
+                dadosLimpos.categoria_id,
+                null
+            );
+
+            if (!isUnique) {
+                return this.erroResponse(res, 'Já existe um tipo global com este nome nesta categoria', 409);
+            }
+
+            // Criar tipo global
+            dadosLimpos.criado_por = req.usuario.id;
+            const tipo = await this.tipoModel.create(dadosLimpos);
+
+            // Buscar tipo criado com detalhes
+            const tipoCriado = await this.tipoModel.findByIdWithDetails(
+                tipo.id,
+                null
+            );
+
+            // Log de auditoria
+            await this.logarAuditoria(
+                req.usuario.id,
+                'CREATE_GLOBAL',
+                'tipos',
+                tipo.id,
+                null,
+                tipoCriado
+            );
+
+            return this.sucessoResponse(
+                res,
+                tipoCriado,
+                'Tipo global criado com sucesso',
+                201
+            );
+
+        } catch (error) {
+            console.error('Erro ao criar tipo global:', error);
+            next(error);
+        }
+    }
+
+    /**
+     * Importar tipos de outra categoria
+     */
+    async importarDeCategoria(req, res, next) {
+        try {
+            const { categoria_origem_id, categoria_destino_id } = req.body;
+            const empresaId = req.usuario.empresa_id;
+
+            if (!categoria_origem_id || !categoria_destino_id) {
+                return this.erroResponse(res, 'Categoria de origem e destino são obrigatórias', 400);
+            }
+
+            if (categoria_origem_id === categoria_destino_id) {
+                return this.erroResponse(res, 'Categorias de origem e destino devem ser diferentes', 400);
+            }
+
+            // Verificar permissões - apenas gerentes ou superiores
+            if (req.usuario.nivel_hierarquia > 3) {
+                return this.erroResponse(res, 'Sem permissão para importar tipos', 403);
+            }
+
+            // Buscar tipos da categoria origem
+            const tiposOrigem = await this.tipoModel.findByCategoria(
+                categoria_origem_id,
+                empresaId,
+                { limit: 100 }
+            );
+
+            if (tiposOrigem.length === 0) {
+                return this.erroResponse(res, 'Nenhum tipo encontrado na categoria de origem', 404);
+            }
+
+            const tiposImportados = [];
+            const errosImportacao = [];
+
+            // Importar cada tipo
+            for (const tipoOrigem of tiposOrigem) {
+                try {
+                    // Verificar se já existe na categoria destino
+                    const jaExiste = await this.tipoModel.isNomeUniqueInCategoria(
+                        tipoOrigem.nome,
+                        categoria_destino_id,
+                        empresaId
+                    );
+
+                    if (!jaExiste) {
+                        errosImportacao.push(`Tipo "${tipoOrigem.nome}" já existe na categoria destino`);
+                        continue;
+                    }
+
+                    // Criar novo tipo na categoria destino
+                    const dadosNovoTipo = {
+                        nome: tipoOrigem.nome,
+                        descricao: tipoOrigem.descricao,
+                        categoria_id: categoria_destino_id,
+                        unidade_medida: tipoOrigem.unidade_medida,
+                        estoque_minimo: tipoOrigem.estoque_minimo,
+                        estoque_maximo: tipoOrigem.estoque_maximo,
+                        vida_util_meses: tipoOrigem.vida_util_meses,
+                        requer_lote: tipoOrigem.requer_lote,
+                        controla_validade: tipoOrigem.controla_validade,
+                        permite_saldo_negativo: tipoOrigem.permite_saldo_negativo,
+                        empresa_id: empresaId,
+                        criado_por: req.usuario.id
+                    };
+
+                    const novoTipo = await this.tipoModel.create(dadosNovoTipo);
+                    tiposImportados.push(novoTipo);
+
+                } catch (error) {
+                    errosImportacao.push(`Erro ao importar "${tipoOrigem.nome}": ${error.message}`);
+                }
+            }
+
+            // Log de auditoria
+            await this.logarAuditoria(
+                req.usuario.id,
+                'IMPORT_TIPOS',
+                'tipos',
+                null,
+                null,
+                {
+                    categoria_origem_id,
+                    categoria_destino_id,
+                    tipos_importados: tiposImportados.length,
+                    erros: errosImportacao.length
+                }
+            );
+
+            return this.sucessoResponse(
+                res,
+                {
+                    tipos_importados: tiposImportados.length,
+                    erros_importacao: errosImportacao,
+                    detalhes: tiposImportados
+                },
+                `${tiposImportados.length} tipos importados com sucesso`
+            );
+
+        } catch (error) {
+            console.error('Erro ao importar tipos:', error);
+            next(error);
+        }
+    }
+}
+
+module.exports = new TiposController();

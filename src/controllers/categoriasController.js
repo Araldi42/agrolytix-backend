@@ -1,44 +1,54 @@
-const { query } = require('../config/database');
-const { criarErro } = require('../middlewares/tratadorErros');
-
 /**
- * Controller para operações com categorias
+ * Controller de Categorias Refatorado
+ * Gerencia categorias de tipos/produtos
+ * Usa Repository Pattern com Model para abstração de dados
  */
-const categoriasController = {
+
+const BaseController = require('./baseController');
+const Categoria = require('../models/Categoria');
+const ValidationService = require('../services/validationService');
+
+class CategoriasController extends BaseController {
+    constructor() {
+        super('categorias', 'Categoria');
+        this.categoriaModel = new Categoria();
+    }
+
     /**
-     * Buscar todas as categorias
+     * Listar categorias com contadores
      */
-    async buscarTodas(req, res, next) {
+    async listar(req, res, next) {
         try {
-            const consulta = `
-                SELECT 
-                    c.id,
-                    c.nome,
-                    c.descricao,
-                    c.ativo,
-                    c.criado_em,
-                    c.atualizado_em,
-                    u1.nome as criado_por_nome,
-                    u2.nome as atualizado_por_nome
-                FROM categorias c
-                LEFT JOIN usuarios u1 ON c.criado_por = u1.id
-                LEFT JOIN usuarios u2 ON c.atualizado_por = u2.id
-                WHERE c.ativo = true
-                ORDER BY c.nome
-            `;
+            const empresaId = req.usuario.empresa_id;
+            const { pagina, limite, offset } = this.obterParametrosPaginacao(req.query);
 
-            const resultado = await query(consulta);
+            const options = {
+                search: req.query.search,
+                page: pagina,
+                limit: limite
+            };
 
-            res.json({
-                sucesso: true,
-                dados: resultado.rows,
-                total: resultado.rows.length
+            const categorias = await this.categoriaModel.findAllWithCounts(empresaId, options);
+
+            // Contar total para paginação
+            const total = await this.categoriaModel.count({
+                empresa_id: empresaId || null
             });
 
+            return this.respostaPaginada(
+                res,
+                categorias,
+                total,
+                pagina,
+                limite,
+                'Categorias listadas com sucesso'
+            );
+
         } catch (error) {
+            console.error('Erro ao listar categorias:', error);
             next(error);
         }
-    },
+    }
 
     /**
      * Buscar categoria por ID
@@ -46,98 +56,89 @@ const categoriasController = {
     async buscarPorId(req, res, next) {
         try {
             const { id } = req.params;
+            const empresaId = req.usuario.empresa_id;
 
-            const consulta = `
-                SELECT 
-                    c.id,
-                    c.nome,
-                    c.descricao,
-                    c.ativo,
-                    c.criado_em,
-                    c.atualizado_em,
-                    u1.nome as criado_por_nome,
-                    u2.nome as atualizado_por_nome
-                FROM categorias c
-                LEFT JOIN usuarios u1 ON c.criado_por = u1.id
-                LEFT JOIN usuarios u2 ON c.atualizado_por = u2.id
-                WHERE c.id = $1 AND c.ativo = true
-            `;
+            const categoria = await this.categoriaModel.findByIdWithDetails(id, empresaId);
 
-            const resultado = await query(consulta, [id]);
-
-            if (resultado.rows.length === 0) {
-                return res.status(404).json({
-                    sucesso: false,
-                    mensagem: 'Categoria não encontrada'
-                });
+            if (!categoria) {
+                return this.erroResponse(res, 'Categoria não encontrada', 404);
             }
 
-            res.json({
-                sucesso: true,
-                dados: resultado.rows[0]
-            });
+            return this.sucessoResponse(res, categoria, 'Categoria encontrada');
 
         } catch (error) {
+            console.error('Erro ao buscar categoria:', error);
             next(error);
         }
-    },
+    }
 
     /**
      * Criar nova categoria
      */
     async criar(req, res, next) {
         try {
-            const { nome, descricao } = req.body;
-            const usuarioId = req.usuario.id;
-
-            // Validação básica
-            if (!nome || nome.trim().length === 0) {
-                return res.status(400).json({
-                    sucesso: false,
-                    mensagem: 'Nome da categoria é obrigatório'
-                });
-            }
-
-            // Verificar se já existe categoria com o mesmo nome
-            const consultaExistente = `
-                SELECT id FROM categorias 
-                WHERE LOWER(nome) = LOWER($1) AND ativo = true
-            `;
-
-            const categoriaExistente = await query(consultaExistente, [nome.trim()]);
-
-            if (categoriaExistente.rows.length > 0) {
-                return res.status(409).json({
-                    sucesso: false,
-                    mensagem: 'Já existe uma categoria com este nome'
-                });
-            }
-
-            // Inserir nova categoria
-            const consultaInsercao = `
-                INSERT INTO categorias (nome, descricao, criado_por)
-                VALUES ($1, $2, $3)
-                RETURNING 
-                    id, nome, descricao, ativo, 
-                    criado_em, criado_por
-            `;
-
-            const novaCategoria = await query(consultaInsercao, [
-                nome.trim(),
-                descricao?.trim() || '',
-                usuarioId
+            const dadosLimpos = this.sanitizarDados(req.body, [
+                'nome', 'descricao'
             ]);
 
-            res.status(201).json({
-                sucesso: true,
-                mensagem: 'Categoria criada com sucesso',
-                dados: novaCategoria.rows[0]
-            });
+            // Definir empresa automaticamente se usuário não for admin sistema
+            if (req.usuario.empresa_id) {
+                dadosLimpos.empresa_id = req.usuario.empresa_id;
+            }
+
+            // Validações básicas
+            const errosValidacao = this.categoriaModel.validate(dadosLimpos);
+            if (errosValidacao.length > 0) {
+                return this.erroResponse(res, 'Dados inválidos', 400, errosValidacao);
+            }
+
+            // Verificar se nome é único
+            const isUnique = await this.categoriaModel.isNomeUnique(
+                dadosLimpos.nome,
+                dadosLimpos.empresa_id
+            );
+
+            if (!isUnique) {
+                return this.erroResponse(res, 'Já existe uma categoria com este nome', 409);
+            }
+
+            // Definir ordem se não especificada
+            if (!dadosLimpos.ordem) {
+                dadosLimpos.ordem = await this.categoriaModel.getNextOrder(dadosLimpos.empresa_id);
+            }
+
+            // Criar categoria
+            dadosLimpos.criado_por = req.usuario.id;
+            const categoria = await this.categoriaModel.create(dadosLimpos);
+
+            // Buscar categoria criada com detalhes
+            const categoriaCriada = await this.categoriaModel.findByIdWithDetails(
+                categoria.id,
+                dadosLimpos.empresa_id
+            );
+
+            // Log de auditoria
+            await this.logarAuditoria(
+                req.usuario.id,
+                'CREATE',
+                'categorias',
+                categoria.id,
+                null,
+                categoriaCriada
+            );
+
+            return this.sucessoResponse(
+                res,
+                categoriaCriada,
+                'Categoria criada com sucesso',
+                201
+            );
 
         } catch (error) {
+            console.error('Erro ao criar categoria:', error);
             next(error);
         }
-    },
+    }
 
     /**
      * Atualizar categoria
@@ -145,79 +146,69 @@ const categoriasController = {
     async atualizar(req, res, next) {
         try {
             const { id } = req.params;
-            const { nome, descricao } = req.body;
-            const usuarioId = req.usuario.id;
+            const empresaId = req.usuario.empresa_id;
 
-            // Validação básica
-            if (!nome || nome.trim().length === 0) {
-                return res.status(400).json({
-                    sucesso: false,
-                    mensagem: 'Nome da categoria é obrigatório'
-                });
+            // Buscar categoria atual
+            const categoriaAtual = await this.categoriaModel.findByIdWithDetails(id, empresaId);
+            if (!categoriaAtual) {
+                return this.erroResponse(res, 'Categoria não encontrada', 404);
             }
 
-            // Verificar se a categoria existe
-            const consultaExistencia = `
-                SELECT id FROM categorias 
-                WHERE id = $1 AND ativo = true
-            `;
+            const dadosLimpos = this.sanitizarDados(req.body, [
+                'nome', 'descricao'
+            ]);
 
-            const categoriaExiste = await query(consultaExistencia, [id]);
-
-            if (categoriaExiste.rows.length === 0) {
-                return res.status(404).json({
-                    sucesso: false,
-                    mensagem: 'Categoria não encontrada'
-                });
+            // Validações básicas
+            const dadosCompletos = { ...categoriaAtual, ...dadosLimpos };
+            const errosValidacao = this.categoriaModel.validate(dadosCompletos);
+            if (errosValidacao.length > 0) {
+                return this.erroResponse(res, 'Dados inválidos', 400, errosValidacao);
             }
 
-            // Verificar se já existe outra categoria com o mesmo nome
-            const consultaNomeDuplicado = `
-                SELECT id FROM categorias 
-                WHERE LOWER(nome) = LOWER($1) AND id != $2 AND ativo = true
-            `;
+            // Verificar nome único (se alterado)
+            if (dadosLimpos.nome && dadosLimpos.nome !== categoriaAtual.nome) {
+                const isUnique = await this.categoriaModel.isNomeUnique(
+                    dadosLimpos.nome,
+                    categoriaAtual.empresa_id,
+                    id
+                );
 
-            const nomeDuplicado = await query(consultaNomeDuplicado, [nome.trim(), id]);
-
-            if (nomeDuplicado.rows.length > 0) {
-                return res.status(409).json({
-                    sucesso: false,
-                    mensagem: 'Já existe outra categoria com este nome'
-                });
+                if (!isUnique) {
+                    return this.erroResponse(res, 'Já existe outra categoria com este nome', 409);
+                }
             }
 
             // Atualizar categoria
-            const consultaAtualizacao = `
-                UPDATE categorias 
-                SET 
-                    nome = $1,
-                    descricao = $2,
-                    atualizado_por = $3,
-                    atualizado_em = CURRENT_TIMESTAMP
-                WHERE id = $4 AND ativo = true
-                RETURNING 
-                    id, nome, descricao, ativo,
-                    criado_em, atualizado_em,
-                    criado_por, atualizado_por
-            `;
+            dadosLimpos.atualizado_por = req.usuario.id;
+            await this.categoriaModel.update(id, dadosLimpos);
 
-            const categoriaAtualizada = await query(consultaAtualizacao, [
-                nome.trim(),
-                descricao?.trim() || '',
-                usuarioId,
-                id
-            ]);
+            // Buscar categoria atualizada
+            const categoriaAtualizada = await this.categoriaModel.findByIdWithDetails(
+                id,
+                empresaId
+            );
 
-            res.json({
-                sucesso: true,
-                mensagem: 'Categoria atualizada com sucesso',
-                dados: categoriaAtualizada.rows[0]
-            });
+            // Log de auditoria
+            await this.logarAuditoria(
+                req.usuario.id,
+                'UPDATE',
+                'categorias',
+                id,
+                categoriaAtual,
+                categoriaAtualizada
+            );
+
+            return this.sucessoResponse(
+                res,
+                categoriaAtualizada,
+                'Categoria atualizada com sucesso'
+            );
 
         } catch (error) {
+            console.error('Erro ao atualizar categoria:', error);
             next(error);
         }
-    },
+    }
 
     /**
      * Excluir categoria (soft delete)
@@ -225,76 +216,44 @@ const categoriasController = {
     async excluir(req, res, next) {
         try {
             const { id } = req.params;
-            const usuarioId = req.usuario.id;
+            const empresaId = req.usuario.empresa_id;
 
-            // Verificar se a categoria existe
-            const consultaExistencia = `
-                SELECT id FROM categorias 
-                WHERE id = $1 AND ativo = true
-            `;
-
-            const categoriaExiste = await query(consultaExistencia, [id]);
-
-            if (categoriaExiste.rows.length === 0) {
-                return res.status(404).json({
-                    sucesso: false,
-                    mensagem: 'Categoria não encontrada'
-                });
+            // Buscar categoria
+            const categoria = await this.categoriaModel.findByIdWithDetails(id, empresaId);
+            if (!categoria) {
+                return this.erroResponse(res, 'Categoria não encontrada', 404);
             }
 
-            // Verificar se há tipos usando esta categoria
-            const consultaTipos = `
-                SELECT id FROM tipos 
-                WHERE categoria_id = $1 AND ativo = true
-                LIMIT 1
-            `;
-
-            const tiposVinculados = await query(consultaTipos, [id]);
-
-            if (tiposVinculados.rows.length > 0) {
-                return res.status(409).json({
-                    sucesso: false,
-                    mensagem: 'Esta categoria possui tipos vinculados e não pode ser excluída'
-                });
+            // Verificar se pode ser excluída
+            const canDelete = await this.categoriaModel.canDelete(id);
+            if (!canDelete) {
+                return this.erroResponse(
+                    res,
+                    'Esta categoria possui tipos vinculados e não pode ser excluída',
+                    409
+                );
             }
 
-            // Verificar se há ativos usando esta categoria
-            const consultaAtivos = `
-                SELECT id FROM ativos 
-                WHERE categoria_id = $1 AND ativo = true
-                LIMIT 1
-            `;
+            // Soft delete
+            await this.categoriaModel.softDelete(id, req.usuario.id);
 
-            const ativosVinculados = await query(consultaAtivos, [id]);
+            // Log de auditoria
+            await this.logarAuditoria(
+                req.usuario.id,
+                'DELETE',
+                'categorias',
+                id,
+                categoria,
+                null
+            );
 
-            if (ativosVinculados.rows.length > 0) {
-                return res.status(409).json({
-                    sucesso: false,
-                    mensagem: 'Esta categoria possui ativos vinculados e não pode ser excluída'
-                });
-            }
-
-            // Soft delete da categoria
-            const consultaExclusao = `
-                UPDATE categorias 
-                SET 
-                    ativo = false,
-                    atualizado_por = $1,
-                    atualizado_em = CURRENT_TIMESTAMP
-                WHERE id = $2
-            `;
-
-            await query(consultaExclusao, [usuarioId, id]);
-
-            res.json({
-                sucesso: true,
-                mensagem: 'Categoria excluída com sucesso'
-            });
+            return this.sucessoResponse(res, null, 'Categoria excluída com sucesso');
 
         } catch (error) {
+            console.error('Erro ao excluir categoria:', error);
             next(error);
         }
-    },
+    }
 
     /**
      * Buscar tipos de uma categoria
@@ -302,51 +261,253 @@ const categoriasController = {
     async buscarTipos(req, res, next) {
         try {
             const { id } = req.params;
+            const empresaId = req.usuario.empresa_id;
 
-            // Verificar se a categoria existe
-            const consultaCategoria = `
-                SELECT id FROM categorias 
-                WHERE id = $1 AND ativo = true
-            `;
-
-            const categoriaExiste = await query(consultaCategoria, [id]);
-
-            if (categoriaExiste.rows.length === 0) {
-                return res.status(404).json({
-                    sucesso: false,
-                    mensagem: 'Categoria não encontrada'
-                });
+            // Verificar se categoria existe
+            const categoria = await this.categoriaModel.findByIdWithDetails(id, empresaId);
+            if (!categoria) {
+                return this.erroResponse(res, 'Categoria não encontrada', 404);
             }
 
-            // Buscar tipos da categoria
-            const consultaTipos = `
-                SELECT 
-                    t.id,
-                    t.nome,
-                    t.descricao,
-                    t.categoria_id,
-                    t.ativo,
-                    t.criado_em,
-                    t.atualizado_em,
-                    c.nome as categoria_nome
-                FROM tipos t
-                INNER JOIN categorias c ON t.categoria_id = c.id
-                WHERE t.categoria_id = $1 AND t.ativo = true
-                ORDER BY t.nome
-            `;
+            const tipos = await this.categoriaModel.getTipos(id, empresaId);
 
-            const resultado = await query(consultaTipos, [id]);
-
-            res.json({
-                sucesso: true,
-                dados: resultado.rows,
-                total: resultado.rows.length
-            });
+            return this.sucessoResponse(
+                res,
+                tipos,
+                'Tipos da categoria listados'
+            );
 
         } catch (error) {
+            console.error('Erro ao buscar tipos da categoria:', error);
             next(error);
         }
     }
-};
 
-module.exports = categoriasController;
+    /**
+     * Buscar categorias mais utilizadas
+     */
+    async maisUtilizadas(req, res, next) {
+        try {
+            const empresaId = req.usuario.empresa_id;
+            const limite = parseInt(req.query.limite) || 10;
+
+            const categorias = await this.categoriaModel.findMostUsed(empresaId, limite);
+
+            return this.sucessoResponse(
+                res,
+                categorias,
+                'Categorias mais utilizadas listadas'
+            );
+
+        } catch (error) {
+            console.error('Erro ao buscar categorias mais utilizadas:', error);
+            next(error);
+        }
+    }
+
+    /**
+     * Reordenar categorias
+     */
+    async reordenar(req, res, next) {
+        try {
+            const { categoria_ids } = req.body;
+            const empresaId = req.usuario.empresa_id;
+
+            if (!categoria_ids || !Array.isArray(categoria_ids)) {
+                return this.erroResponse(res, 'Lista de IDs das categorias é obrigatória', 400);
+            }
+
+            // Verificar se usuário pode reordenar (apenas gerentes ou superiores)
+            if (req.usuario.nivel_hierarquia > 3) {
+                return this.erroResponse(res, 'Sem permissão para reordenar categorias', 403);
+            }
+
+            const sucesso = await this.categoriaModel.reorder(categoria_ids, empresaId);
+
+            if (!sucesso) {
+                return this.erroResponse(res, 'Erro ao reordenar categorias', 500);
+            }
+
+            // Log de auditoria
+            await this.logarAuditoria(
+                req.usuario.id,
+                'REORDER',
+                'categorias',
+                null,
+                null,
+                { categoria_ids, total_reordenadas: categoria_ids.length }
+            );
+
+            return this.sucessoResponse(
+                res,
+                { total_reordenadas: categoria_ids.length },
+                'Categorias reordenadas com sucesso'
+            );
+
+        } catch (error) {
+            console.error('Erro ao reordenar categorias:', error);
+            next(error);
+        }
+    }
+
+    /**
+     * Obter estatísticas das categorias
+     */
+    async estatisticas(req, res, next) {
+        try {
+            const empresaId = req.usuario.empresa_id;
+
+            const estatisticas = await this.categoriaModel.getEstatisticas(empresaId);
+
+            return this.sucessoResponse(
+                res,
+                estatisticas,
+                'Estatísticas das categorias obtidas'
+            );
+
+        } catch (error) {
+            console.error('Erro ao obter estatísticas:', error);
+            next(error);
+        }
+    }
+
+    /**
+     * Dashboard de categorias - resumo executivo
+     */
+    async dashboard(req, res, next) {
+        try {
+            const empresaId = req.usuario.empresa_id;
+
+            // Buscar dados em paralelo para performance
+            const [
+                estatisticas,
+                maisUtilizadas,
+                todasCategorias
+            ] = await Promise.all([
+                this.categoriaModel.getEstatisticas(empresaId),
+                this.categoriaModel.findMostUsed(empresaId, 5),
+                this.categoriaModel.findAllWithCounts(empresaId, { limit: 10 })
+            ]);
+
+            const dashboard = {
+                estatisticas_gerais: estatisticas,
+                mais_utilizadas: maisUtilizadas,
+                categorias_recentes: todasCategorias,
+                timestamp: new Date().toISOString()
+            };
+
+            return this.sucessoResponse(
+                res,
+                dashboard,
+                'Dashboard de categorias carregado'
+            );
+
+        } catch (error) {
+            console.error('Erro ao carregar dashboard:', error);
+            next(error);
+        }
+    }
+
+    /**
+     * Buscar categorias globais (disponíveis para todas as empresas)
+     */
+    async globais(req, res, next) {
+        try {
+            // Apenas admin sistema pode ver categorias globais
+            if (req.usuario.nivel_hierarquia > 1) {
+                return this.erroResponse(res, 'Acesso negado', 403);
+            }
+
+            const options = {
+                search: req.query.search,
+                page: parseInt(req.query.page) || 1,
+                limit: parseInt(req.query.limit) || 20
+            };
+
+            const categorias = await this.categoriaModel.findAllWithCounts(null, options);
+
+            return this.sucessoResponse(
+                res,
+                categorias,
+                'Categorias globais listadas'
+            );
+
+        } catch (error) {
+            console.error('Erro ao buscar categorias globais:', error);
+            next(error);
+        }
+    }
+
+    /**
+     * Criar categoria global (apenas admin sistema)
+     */
+    async criarGlobal(req, res, next) {
+        try {
+            // Apenas admin sistema pode criar categorias globais
+            if (req.usuario.nivel_hierarquia > 1) {
+                return this.erroResponse(res, 'Acesso negado', 403);
+            }
+
+            const dadosLimpos = this.sanitizarDados(req.body, [
+                'nome', 'descricao'
+            ]);
+
+            // Categoria global não tem empresa_id
+            dadosLimpos.empresa_id = null;
+
+            // Validações básicas
+            const errosValidacao = this.categoriaModel.validate(dadosLimpos);
+            if (errosValidacao.length > 0) {
+                return this.erroResponse(res, 'Dados inválidos', 400, errosValidacao);
+            }
+
+            // Verificar se nome é único entre categorias globais
+            const isUnique = await this.categoriaModel.isNomeUnique(
+                dadosLimpos.nome,
+                null
+            );
+
+            if (!isUnique) {
+                return this.erroResponse(res, 'Já existe uma categoria global com este nome', 409);
+            }
+
+            // Definir ordem se não especificada
+            if (!dadosLimpos.ordem) {
+                dadosLimpos.ordem = await this.categoriaModel.getNextOrder(null);
+            }
+
+            // Criar categoria
+            dadosLimpos.criado_por = req.usuario.id;
+            const categoria = await this.categoriaModel.create(dadosLimpos);
+
+            // Buscar categoria criada com detalhes
+            const categoriaCriada = await this.categoriaModel.findByIdWithDetails(
+                categoria.id,
+                null
+            );
+
+            // Log de auditoria
+            await this.logarAuditoria(
+                req.usuario.id,
+                'CREATE_GLOBAL',
+                'categorias',
+                categoria.id,
+                null,
+                categoriaCriada
+            );
+
+            return this.sucessoResponse(
+                res,
+                categoriaCriada,
+                'Categoria global criada com sucesso',
+                201
+            );
+
+        } catch (error) {
+            console.error('Erro ao criar categoria global:', error);
+            next(error);
+        }
+    }
+}
+
+module.exports = new CategoriasController();
