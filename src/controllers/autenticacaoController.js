@@ -1,12 +1,21 @@
-const bcrypt = require('bcryptjs');
-const { query } = require('../config/database');
-const jwtService = require('../services/jwtService');
-const { criarErro } = require('../middlewares/tratadorErros');
-
 /**
- * Controller para operações de autenticação
+ * Controller de Autenticação Refatorado
+ * Gerencia autenticação e autorização de usuários
+ * Usa Repository Pattern com Model para abstração de dados
  */
-const autenticacaoController = {
+
+const BaseController = require('./baseController');
+const Usuario = require('../models/Usuario');
+const ValidationService = require('../services/validationService');
+const jwtService = require('../services/jwtService');
+const bcrypt = require('bcryptjs');
+
+class AutenticacaoController extends BaseController {
+    constructor() {
+        super('usuarios', 'Usuário');
+        this.usuarioModel = new Usuario();
+    }
+
     /**
      * Login do usuário
      */
@@ -16,195 +25,262 @@ const autenticacaoController = {
 
             // Validação básica
             if (!identifier || !senha) {
-                return res.status(400).json({
-                    sucesso: false,
-                    mensagem: 'Email/login e senha são obrigatórios'
-                });
+                return this.erroResponse(res, 'Email/login e senha são obrigatórios', 400);
             }
 
-            // Buscar usuário por email ou login com informações de perfil
-            const consultaUsuario = `
-                SELECT 
-                    u.id, u.nome, u.login, u.email, u.senha, u.ativo,
-                    u.empresa_id, u.perfil_id,
-                    p.nome as perfil_nome, p.nivel_hierarquia, p.permissoes,
-                    e.razao_social as empresa_nome
-                FROM usuarios u
-                INNER JOIN perfis_usuario p ON u.perfil_id = p.id
-                LEFT JOIN empresas e ON u.empresa_id = e.id
-                WHERE (u.email = $1 OR u.login = $1) AND u.ativo = true AND p.ativo = true
-            `;
+            // Buscar usuário por email ou login
+            const usuario = await this.usuarioModel.findByEmailOrLogin(identifier);
 
-            const resultado = await query(consultaUsuario, [identifier]);
-
-            if (resultado.rows.length === 0) {
-                return res.status(401).json({
-                    sucesso: false,
-                    mensagem: 'Credenciais inválidas'
-                });
+            if (!usuario) {
+                return this.erroResponse(res, 'Credenciais inválidas', 401);
             }
 
-            const usuario = resultado.rows[0];
+            // Verificar se usuário está ativo
+            if (!usuario.ativo) {
+                return this.erroResponse(res, 'Usuário inativo. Contate o administrador.', 401);
+            }
 
             // Verificar senha
             const senhaValida = await bcrypt.compare(senha, usuario.senha);
 
             if (!senhaValida) {
-                return res.status(401).json({
-                    sucesso: false,
-                    mensagem: 'Credenciais inválidas'
-                });
+                // Log de tentativa de login inválida
+                await this.logarAuditoria(
+                    null,
+                    'LOGIN_FAILED',
+                    'usuarios',
+                    usuario.id,
+                    null,
+                    { identifier, ip: req.ip, user_agent: req.get('User-Agent') }
+                );
+
+                return this.erroResponse(res, 'Credenciais inválidas', 401);
+            }
+
+            // Verificar se empresa está ativa (se aplicável)
+            if (usuario.empresa_id && usuario.empresa_status !== 'ativo') {
+                return this.erroResponse(res, 'Empresa inativa ou suspensa. Contate o suporte.', 401);
             }
 
             // Gerar token JWT
-            const token = jwtService.gerarToken(usuario);
+            const tokenData = {
+                id: usuario.id,
+                email: usuario.email,
+                login: usuario.login,
+                nome: usuario.nome,
+                empresa_id: usuario.empresa_id,
+                nivel_hierarquia: usuario.nivel_hierarquia
+            };
 
-            // Remover senha do objeto de resposta
+            const token = jwtService.gerarToken(tokenData);
+
+            // Atualizar último acesso
+            await this.usuarioModel.updateLastAccess(usuario.id);
+
+            // Preparar dados do usuário para resposta (sem senha)
             const { senha: _, ...usuarioSemSenha } = usuario;
 
-            res.json({
-                sucesso: true,
-                mensagem: 'Login realizado com sucesso',
-                usuario: usuarioSemSenha,
-                token
-            });
+            // Log de login bem-sucedido
+            await this.logarAuditoria(
+                usuario.id,
+                'LOGIN_SUCCESS',
+                'usuarios',
+                usuario.id,
+                null,
+                { ip: req.ip, user_agent: req.get('User-Agent') }
+            );
+
+            return this.sucessoResponse(
+                res,
+                {
+                    usuario: usuarioSemSenha,
+                    token,
+                    expires_in: process.env.JWT_EXPIRES_IN || '7d'
+                },
+                'Login realizado com sucesso'
+            );
 
         } catch (error) {
+            console.error('Erro no login:', error);
             next(error);
         }
-    },
+    }
 
     /**
-     * Cadastro de novo usuário
+     * Cadastro de novo usuário (auto-registro ou admin)
      */
     async cadastro(req, res, next) {
         try {
-            const { nome, login, email, senha } = req.body;
+            const { senha, confirmar_senha, ...dadosUsuario } = req.body;
 
             // Validação básica
-            if (!nome || !login || !email || !senha) {
-                return res.status(400).json({
-                    sucesso: false,
-                    mensagem: 'Todos os campos são obrigatórios'
-                });
+            if (!dadosUsuario.nome || !dadosUsuario.login || !dadosUsuario.email || !senha) {
+                return this.erroResponse(res, 'Todos os campos são obrigatórios', 400);
             }
 
-            // Validar formato do email
-            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-            if (!emailRegex.test(email)) {
-                return res.status(400).json({
-                    sucesso: false,
-                    mensagem: 'Formato de email inválido'
-                });
+            // Validar confirmação de senha
+            if (senha !== confirmar_senha) {
+                return this.erroResponse(res, 'Confirmação de senha não confere', 400);
             }
 
-            // Validar força da senha
-            if (senha.length < 6) {
-                return res.status(400).json({
-                    sucesso: false,
-                    mensagem: 'Senha deve ter pelo menos 6 caracteres'
-                });
+            // Validações de dados
+            const errosValidacao = this.usuarioModel.validate(dadosUsuario);
+            if (errosValidacao.length > 0) {
+                return this.erroResponse(res, 'Dados inválidos', 400, errosValidacao);
             }
 
-            // Verificar se email ou login já existem
-            const consultaExistente = `
-                SELECT id FROM usuarios 
-                WHERE email = $1 OR login = $2
-            `;
-
-            const usuarioExistente = await query(consultaExistente, [email, login]);
-
-            if (usuarioExistente.rows.length > 0) {
-                return res.status(409).json({
-                    sucesso: false,
-                    mensagem: 'Email ou nome de usuário já cadastrado'
-                });
+            // Validações de negócio
+            const errosNegocio = ValidationService.validarUsuario({ ...dadosUsuario, senha });
+            if (errosNegocio.length > 0) {
+                return this.erroResponse(res, 'Validação de negócio falhou', 400, errosNegocio);
             }
 
-            // Hash da senha
-            const saltRounds = parseInt(process.env.BCRYPT_SALT_ROUNDS) || 10;
-            const senhaHash = await bcrypt.hash(senha, saltRounds);
+            // Verificar unicidade do login
+            const loginUnico = await this.usuarioModel.isLoginUnique(dadosUsuario.login);
+            if (!loginUnico) {
+                return this.erroResponse(res, 'Login já está em uso', 409);
+            }
 
-            // Inserir novo usuário
-            const consultaInsercao = `
-                INSERT INTO usuarios (nome, login, email, senha)
-                VALUES ($1, $2, $3, $4)
-                RETURNING id, nome, login, email, ativo, criado_em
-            `;
+            // Verificar unicidade do email
+            const emailUnico = await this.usuarioModel.isEmailUnique(dadosUsuario.email);
+            if (!emailUnico) {
+                return this.erroResponse(res, 'Email já está em uso', 409);
+            }
 
-            const novoUsuario = await query(consultaInsercao, [nome, login, email, senhaHash]);
+            // Definir perfil padrão se não especificado (usuário básico)
+            if (!dadosUsuario.perfil_id) {
+                dadosUsuario.perfil_id = await this.usuarioModel.getDefaultPerfilId();
+            }
 
-            res.status(201).json({
-                sucesso: true,
-                mensagem: 'Usuário cadastrado com sucesso',
-                usuario: novoUsuario.rows[0]
-            });
+            // Criar usuário
+            const novoUsuario = await this.usuarioModel.createWithPassword(dadosUsuario, senha);
+
+            // Log de auditoria
+            await this.logarAuditoria(
+                novoUsuario.id,
+                'REGISTER',
+                'usuarios',
+                novoUsuario.id,
+                null,
+                { nome: novoUsuario.nome, login: novoUsuario.login, email: novoUsuario.email }
+            );
+
+            // Preparar resposta (sem senha)
+            const { senha: _, ...usuarioSemSenha } = novoUsuario;
+
+            return this.sucessoResponse(
+                res,
+                usuarioSemSenha,
+                'Usuário cadastrado com sucesso',
+                201
+            );
 
         } catch (error) {
+            console.error('Erro no cadastro:', error);
             next(error);
         }
-    },
+    }
 
     /**
-     * Verificar autenticação
+     * Verificar autenticação (validar token)
      */
     async verificar(req, res, next) {
         try {
             const authHeader = req.headers.authorization;
 
             if (!authHeader || !authHeader.startsWith('Bearer ')) {
-                return res.json({
-                    sucesso: false,
-                    autenticado: false
-                });
+                return this.sucessoResponse(
+                    res,
+                    { autenticado: false },
+                    'Token não fornecido'
+                );
             }
 
             const token = authHeader.split(' ')[1];
             const decoded = jwtService.verificarToken(token);
 
             if (!decoded) {
-                return res.json({
-                    sucesso: false,
-                    autenticado: false
-                });
+                return this.sucessoResponse(
+                    res,
+                    { autenticado: false },
+                    'Token inválido ou expirado'
+                );
             }
 
             // Buscar dados atualizados do usuário
-            const consultaUsuario = `
-                SELECT id, nome, login, email, ativo, criado_em
-                FROM usuarios 
-                WHERE id = $1 AND ativo = true
-            `;
+            const usuario = await this.usuarioModel.findByIdWithDetails(decoded.id);
 
-            const resultado = await query(consultaUsuario, [decoded.id]);
-
-            if (resultado.rows.length === 0) {
-                return res.json({
-                    sucesso: false,
-                    autenticado: false
-                });
+            if (!usuario || !usuario.ativo) {
+                return this.sucessoResponse(
+                    res,
+                    { autenticado: false },
+                    'Usuário não encontrado ou inativo'
+                );
             }
 
-            res.json({
-                sucesso: true,
-                autenticado: true,
-                usuario: resultado.rows[0]
-            });
+            // Verificar se empresa está ativa (se aplicável)
+            if (usuario.empresa_id && usuario.empresa_status !== 'ativo') {
+                return this.sucessoResponse(
+                    res,
+                    { autenticado: false, motivo: 'empresa_inativa' },
+                    'Empresa inativa ou suspensa'
+                );
+            }
+
+            // Preparar dados do usuário (sem senha)
+            const { senha: _, ...usuarioSemSenha } = usuario;
+
+            // Verificar se token está próximo do vencimento
+            const proximoVencimento = jwtService.proximoVencimento(token, 60);
+
+            return this.sucessoResponse(
+                res,
+                {
+                    autenticado: true,
+                    usuario: usuarioSemSenha,
+                    token_expira_em_breve: proximoVencimento
+                },
+                'Token válido'
+            );
 
         } catch (error) {
-            next(error);
+            console.error('Erro na verificação de token:', error);
+            return this.sucessoResponse(
+                res,
+                { autenticado: false },
+                'Erro na verificação'
+            );
         }
-    },
+    }
 
     /**
-     * Logout (placeholder - o frontend deve remover o token)
+     * Logout (invalidar token no cliente)
      */
-    async logout(req, res) {
-        res.json({
-            sucesso: true,
-            mensagem: 'Logout realizado com sucesso'
-        });
-    },
+    async logout(req, res, next) {
+        try {
+            // Log de logout se usuário estiver autenticado
+            if (req.usuario) {
+                await this.logarAuditoria(
+                    req.usuario.id,
+                    'LOGOUT',
+                    'usuarios',
+                    req.usuario.id,
+                    null,
+                    { ip: req.ip, user_agent: req.get('User-Agent') }
+                );
+            }
+
+            return this.sucessoResponse(
+                res,
+                null,
+                'Logout realizado com sucesso'
+            );
+
+        } catch (error) {
+            console.error('Erro no logout:', error);
+            next(error);
+        }
+    }
 
     /**
      * Renovar token JWT
@@ -214,35 +290,382 @@ const autenticacaoController = {
             const usuario = req.usuario; // Vem do middleware de autenticação
 
             // Buscar dados atualizados do usuário
-            const consultaUsuario = `
-                SELECT id, nome, login, email, ativo
-                FROM usuarios 
-                WHERE id = $1 AND ativo = true
-            `;
+            const usuarioAtualizado = await this.usuarioModel.findByIdWithDetails(usuario.id);
 
-            const resultado = await query(consultaUsuario, [usuario.id]);
+            if (!usuarioAtualizado || !usuarioAtualizado.ativo) {
+                return this.erroResponse(res, 'Usuário não encontrado ou inativo', 401);
+            }
 
-            if (resultado.rows.length === 0) {
-                return res.status(401).json({
-                    sucesso: false,
-                    mensagem: 'Usuário não encontrado ou inativo'
-                });
+            // Verificar se empresa está ativa (se aplicável)
+            if (usuarioAtualizado.empresa_id && usuarioAtualizado.empresa_status !== 'ativo') {
+                return this.erroResponse(res, 'Empresa inativa ou suspensa', 401);
             }
 
             // Gerar novo token
-            const novoToken = jwtService.gerarToken(resultado.rows[0]);
+            const tokenData = {
+                id: usuarioAtualizado.id,
+                email: usuarioAtualizado.email,
+                login: usuarioAtualizado.login,
+                nome: usuarioAtualizado.nome,
+                empresa_id: usuarioAtualizado.empresa_id,
+                nivel_hierarquia: usuarioAtualizado.nivel_hierarquia
+            };
 
-            res.json({
-                sucesso: true,
-                mensagem: 'Token renovado com sucesso',
-                token: novoToken,
-                usuario: resultado.rows[0]
-            });
+            const novoToken = jwtService.gerarToken(tokenData);
+
+            // Preparar dados do usuário (sem senha)
+            const { senha: _, ...usuarioSemSenha } = usuarioAtualizado;
+
+            // Log de renovação
+            await this.logarAuditoria(
+                usuario.id,
+                'TOKEN_REFRESH',
+                'usuarios',
+                usuario.id,
+                null,
+                { ip: req.ip }
+            );
+
+            return this.sucessoResponse(
+                res,
+                {
+                    token: novoToken,
+                    usuario: usuarioSemSenha,
+                    expires_in: process.env.JWT_EXPIRES_IN || '7d'
+                },
+                'Token renovado com sucesso'
+            );
 
         } catch (error) {
+            console.error('Erro ao renovar token:', error);
             next(error);
         }
     }
-};
 
-module.exports = autenticacaoController;
+    /**
+     * Alterar senha do usuário logado
+     */
+    async alterarSenha(req, res, next) {
+        try {
+            const { senha_atual, nova_senha, confirmar_senha } = req.body;
+            const usuarioId = req.usuario.id;
+
+            // Validações básicas
+            if (!senha_atual || !nova_senha || !confirmar_senha) {
+                return this.erroResponse(res, 'Todos os campos são obrigatórios', 400);
+            }
+
+            if (nova_senha !== confirmar_senha) {
+                return this.erroResponse(res, 'Confirmação de senha não confere', 400);
+            }
+
+            if (nova_senha.length < 6) {
+                return this.erroResponse(res, 'Nova senha deve ter pelo menos 6 caracteres', 400);
+            }
+
+            // Verificar senha atual
+            const senhaValida = await this.usuarioModel.verifyPassword(usuarioId, senha_atual);
+            if (!senhaValida) {
+                return this.erroResponse(res, 'Senha atual incorreta', 400);
+            }
+
+            // Atualizar senha
+            const resultado = await this.usuarioModel.updatePassword(usuarioId, nova_senha);
+
+            if (!resultado) {
+                return this.erroResponse(res, 'Erro ao atualizar senha', 500);
+            }
+
+            // Log de auditoria
+            await this.logarAuditoria(
+                usuarioId,
+                'CHANGE_PASSWORD',
+                'usuarios',
+                usuarioId,
+                null,
+                { ip: req.ip }
+            );
+
+            return this.sucessoResponse(
+                res,
+                null,
+                'Senha alterada com sucesso'
+            );
+
+        } catch (error) {
+            console.error('Erro ao alterar senha:', error);
+            next(error);
+        }
+    }
+
+    /**
+     * Solicitar recuperação de senha
+     */
+    async solicitarRecuperacao(req, res, next) {
+        try {
+            const { email } = req.body;
+
+            if (!email) {
+                return this.erroResponse(res, 'Email é obrigatório', 400);
+            }
+
+            // Buscar usuário pelo email
+            const usuario = await this.usuarioModel.findByEmail(email);
+
+            // Por segurança, sempre retorna sucesso, mesmo se email não existir
+            if (!usuario) {
+                return this.sucessoResponse(
+                    res,
+                    null,
+                    'Se o email estiver cadastrado, você receberá instruções para recuperação'
+                );
+            }
+
+            // Verificar se usuário está ativo
+            if (!usuario.ativo) {
+                return this.sucessoResponse(
+                    res,
+                    null,
+                    'Se o email estiver cadastrado, você receberá instruções para recuperação'
+                );
+            }
+
+            // Gerar token de recuperação (válido por 1 hora)
+            const tokenRecuperacao = jwtService.gerarToken(
+                { id: usuario.id, tipo: 'password_reset' },
+                '1h'
+            );
+
+            // Aqui seria enviado o email com o token
+            // Por enquanto, apenas log de auditoria
+            await this.logarAuditoria(
+                usuario.id,
+                'PASSWORD_RESET_REQUEST',
+                'usuarios',
+                usuario.id,
+                null,
+                { email, ip: req.ip, token_gerado: true }
+            );
+
+            // TODO: Implementar envio de email
+            console.log(`Token de recuperação para ${email}: ${tokenRecuperacao}`);
+
+            return this.sucessoResponse(
+                res,
+                null,
+                'Se o email estiver cadastrado, você receberá instruções para recuperação'
+            );
+
+        } catch (error) {
+            console.error('Erro ao solicitar recuperação:', error);
+            next(error);
+        }
+    }
+
+    /**
+     * Redefinir senha com token
+     */
+    async redefinirSenha(req, res, next) {
+        try {
+            const { token, nova_senha, confirmar_senha } = req.body;
+
+            if (!token || !nova_senha || !confirmar_senha) {
+                return this.erroResponse(res, 'Todos os campos são obrigatórios', 400);
+            }
+
+            if (nova_senha !== confirmar_senha) {
+                return this.erroResponse(res, 'Confirmação de senha não confere', 400);
+            }
+
+            if (nova_senha.length < 6) {
+                return this.erroResponse(res, 'Nova senha deve ter pelo menos 6 caracteres', 400);
+            }
+
+            // Verificar token de recuperação
+            const decoded = jwtService.verificarToken(token);
+
+            if (!decoded || decoded.tipo !== 'password_reset') {
+                return this.erroResponse(res, 'Token inválido ou expirado', 400);
+            }
+
+            // Buscar usuário
+            const usuario = await this.usuarioModel.findById(decoded.id);
+
+            if (!usuario || !usuario.ativo) {
+                return this.erroResponse(res, 'Usuário não encontrado ou inativo', 404);
+            }
+
+            // Atualizar senha
+            const resultado = await this.usuarioModel.updatePassword(decoded.id, nova_senha);
+
+            if (!resultado) {
+                return this.erroResponse(res, 'Erro ao redefinir senha', 500);
+            }
+
+            // Log de auditoria
+            await this.logarAuditoria(
+                decoded.id,
+                'PASSWORD_RESET_SUCCESS',
+                'usuarios',
+                decoded.id,
+                null,
+                { ip: req.ip }
+            );
+
+            return this.sucessoResponse(
+                res,
+                null,
+                'Senha redefinida com sucesso'
+            );
+
+        } catch (error) {
+            console.error('Erro ao redefinir senha:', error);
+            next(error);
+        }
+    }
+
+    /**
+     * Obter perfil do usuário logado
+     */
+    async meuPerfil(req, res, next) {
+        try {
+            const usuario = await this.usuarioModel.findByIdWithDetails(req.usuario.id);
+
+            if (!usuario) {
+                return this.erroResponse(res, 'Usuário não encontrado', 404);
+            }
+
+            // Preparar dados do usuário (sem senha)
+            const { senha: _, ...usuarioSemSenha } = usuario;
+
+            return this.sucessoResponse(
+                res,
+                usuarioSemSenha,
+                'Perfil do usuário obtido'
+            );
+
+        } catch (error) {
+            console.error('Erro ao buscar perfil:', error);
+            next(error);
+        }
+    }
+
+    /**
+     * Atualizar perfil do usuário logado
+     */
+    async atualizarMeuPerfil(req, res, next) {
+        try {
+            const { nome, email, telefone, cargo } = req.body;
+            const usuarioId = req.usuario.id;
+
+            // Dados que o usuário pode alterar em seu próprio perfil
+            const dadosPermitidos = { nome, telefone, cargo };
+
+            // Email precisa validação especial
+            if (email && email !== req.usuario.email) {
+                const emailUnico = await this.usuarioModel.isEmailUnique(email, usuarioId);
+                if (!emailUnico) {
+                    return this.erroResponse(res, 'Email já está em uso', 409);
+                }
+                dadosPermitidos.email = email;
+            }
+
+            // Validar dados
+            const validationErrors = this.usuarioModel.validate(dadosPermitidos);
+            if (validationErrors.length > 0) {
+                return this.erroResponse(res, 'Dados inválidos', 400, validationErrors);
+            }
+
+            // Atualizar
+            await this.usuarioModel.update(usuarioId, dadosPermitidos);
+
+            // Buscar usuário atualizado
+            const usuarioAtualizado = await this.usuarioModel.findByIdWithDetails(usuarioId);
+
+            // Log de auditoria
+            await this.logarAuditoria(
+                usuarioId,
+                'UPDATE_OWN_PROFILE',
+                'usuarios',
+                usuarioId,
+                null,
+                dadosPermitidos
+            );
+
+            // Preparar dados do usuário (sem senha)
+            const { senha: _, ...usuarioSemSenha } = usuarioAtualizado;
+
+            return this.sucessoResponse(
+                res,
+                usuarioSemSenha,
+                'Perfil atualizado com sucesso'
+            );
+
+        } catch (error) {
+            console.error('Erro ao atualizar perfil:', error);
+            next(error);
+        }
+    }
+
+    /**
+     * Listar sessões ativas do usuário
+     */
+    async sessõesAtivas(req, res, next) {
+        try {
+            // Esta funcionalidade requereria armazenamento de sessões
+            // Por enquanto, retorna informação básica
+            const sessaoAtual = {
+                ip: req.ip,
+                user_agent: req.get('User-Agent'),
+                data_login: new Date().toISOString(),
+                ativa: true
+            };
+
+            return this.sucessoResponse(
+                res,
+                [sessaoAtual],
+                'Sessões ativas listadas'
+            );
+
+        } catch (error) {
+            console.error('Erro ao listar sessões:', error);
+            next(error);
+        }
+    }
+
+    /**
+     * Verificar status da conta
+     */
+    async statusConta(req, res, next) {
+        try {
+            const usuario = await this.usuarioModel.findByIdWithDetails(req.usuario.id);
+
+            if (!usuario) {
+                return this.erroResponse(res, 'Usuário não encontrado', 404);
+            }
+
+            const status = {
+                usuario_ativo: usuario.ativo,
+                empresa_ativa: usuario.empresa_id ? usuario.empresa_status === 'ativo' : true,
+                perfil_nome: usuario.perfil_nome,
+                nivel_hierarquia: usuario.nivel_hierarquia,
+                ultimo_acesso: usuario.ultimo_acesso,
+                data_criacao: usuario.criado_em,
+                permissoes: usuario.permissoes || {},
+                fazendas_acesso: usuario.fazendas_acesso || []
+            };
+
+            return this.sucessoResponse(
+                res,
+                status,
+                'Status da conta obtido'
+            );
+
+        } catch (error) {
+            console.error('Erro ao obter status da conta:', error);
+            next(error);
+        }
+    }
+}
+
+module.exports = new AutenticacaoController();

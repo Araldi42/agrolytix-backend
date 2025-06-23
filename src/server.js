@@ -10,7 +10,6 @@ const usuariosRoutes = require('./routes/usuarios');
 const categoriasRoutes = require('./routes/categorias');
 const tiposRoutes = require('./routes/tipos');
 const fornecedoresRoutes = require('./routes/fornecedores');
-const ativosRoutes = require('./routes/ativos');
 const produtosRoutes = require('./routes/produtos');
 const movimentacoesRoutes = require('./routes/movimentacoes');
 
@@ -47,7 +46,6 @@ app.use('/api/usuarios', usuariosRoutes);
 app.use('/api/categorias', categoriasRoutes);
 app.use('/api/tipos', tiposRoutes);
 app.use('/api/fornecedores', fornecedoresRoutes);
-app.use('/api/ativos', ativosRoutes);
 app.use('/api/produtos', produtosRoutes);
 app.use('/api/movimentacoes', movimentacoesRoutes);
 
@@ -56,7 +54,7 @@ app.get('/', (req, res) => {
     res.json({
         sucesso: true,
         mensagem: 'API Agrolytix funcionando!',
-        versao: '1.0.0',
+        versao: '2.0.0',
         timestamp: new Date().toISOString(),
         endpoints: [
             'GET  / - Status da API',
@@ -68,7 +66,8 @@ app.get('/', (req, res) => {
             'GET  /api/categorias - Listar categorias',
             'GET  /api/tipos - Listar tipos',
             'GET  /api/fornecedores - Listar fornecedores',
-            'GET  /api/ativos - Listar ativos'
+            'GET  /api/produtos - Listar produtos (unifica ativos + insumos)',
+            'GET  /api/movimentacoes - Listar movimentações'
         ]
     });
 });

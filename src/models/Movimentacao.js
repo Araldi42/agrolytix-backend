@@ -1,328 +1,594 @@
 /**
- * Model Movimentacao
- * Representa movimentações de estoque
+ * Model de Movimentação
+ * Gerencia movimentações de estoque (entrada, saída, transferência)
+ * Controla automaticamente o estoque através de triggers
  */
 
 const BaseModel = require('./BaseModel');
+const { query, getClient } = require('../config/database');
 
 class Movimentacao extends BaseModel {
     constructor() {
         super('movimentacoes', 'id');
-        
+
+        // Campos que podem ser preenchidos em massa
         this.fillable = [
-            'empresa_id', 'fazenda_id', 'tipo_movimentacao_id',
-            'numero_documento', 'data_movimentacao', 'descricao',
-            'origem_setor_id', 'destino_setor_id', 'observacoes',
-            'valor_total', 'status'
+            'empresa_id', 'fazenda_id', 'tipo_movimentacao_id', 'numero_documento',
+            'data_movimentacao', 'origem_setor_id', 'destino_setor_id',
+            'fornecedor_id', 'cliente_id', 'valor_total', 'observacoes',
+            'status', 'usuario_criacao'
         ];
 
+        // Conversões de tipo automáticas
         this.casts = {
-            ativo: 'boolean',
-            data_movimentacao: 'date',
-            valor_total: 'number',
-            criado_em: 'date',
-            atualizado_em: 'date'
+            'valor_total': 'float',
+            'data_movimentacao': 'date',
+            'ativo': 'boolean'
+        };
+
+        // Relacionamentos
+        this.relationships = {
+            empresa: { table: 'empresas', foreign_key: 'empresa_id', local_key: 'id' },
+            fazenda: { table: 'fazendas', foreign_key: 'fazenda_id', local_key: 'id' },
+            tipo_movimentacao: { table: 'tipos_movimentacao', foreign_key: 'tipo_movimentacao_id', local_key: 'id' },
+            fornecedor: { table: 'fornecedores', foreign_key: 'fornecedor_id', local_key: 'id' },
+            cliente: { table: 'clientes', foreign_key: 'cliente_id', local_key: 'id' },
+            usuario: { table: 'usuarios', foreign_key: 'usuario_criacao', local_key: 'id' }
         };
     }
 
     /**
-     * Criar movimentação com itens
-     */
-    async createWithItens(dadosMovimentacao, itens, userId) {
-        return await this.transaction(async (client) => {
-            // Inserir movimentação
-            const movimentacao = await this.create(dadosMovimentacao, userId);
-            
-            // Inserir itens
-            for (const item of itens) {
-                await this.createItem(client, movimentacao.id, item);
-            }
-
-            // Atualizar estoque
-            await this.atualizarEstoque(client, movimentacao.id, dadosMovimentacao.tipo_movimentacao_id);
-
-            return await this.findWithItens(movimentacao.id);
-        });
-    }
-
-    /**
-     * Criar item da movimentação
-     */
-    async createItem(client, movimentacaoId, item) {
-        const sql = `
-            INSERT INTO movimentacao_itens 
-            (movimentacao_id, produto_id, quantidade, valor_unitario, valor_total, observacoes)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            RETURNING *
-        `;
-
-        const valorTotal = item.quantidade * item.valor_unitario;
-        const params = [
-            movimentacaoId,
-            item.produto_id,
-            item.quantidade,
-            item.valor_unitario,
-            valorTotal,
-            item.observacoes || null
-        ];
-
-        const result = await client.query(sql, params);
-        return result.rows[0];
-    }
-
-    /**
-     * Atualizar estoque baseado na movimentação
-     */
-    async atualizarEstoque(client, movimentacaoId, tipoMovimentacaoId) {
-        // Buscar tipo de movimentação para saber a operação
-        const tipoResult = await client.query('SELECT operacao FROM tipos_movimentacao WHERE id = $1', [tipoMovimentacaoId]);
-        const operacao = tipoResult.rows[0]?.operacao;
-
-        if (!operacao) return;
-
-        // Buscar itens da movimentação
-        const itensResult = await client.query(`
-            SELECT produto_id, quantidade, valor_unitario 
-            FROM movimentacao_itens 
-            WHERE movimentacao_id = $1
-        `, [movimentacaoId]);
-
-        for (const item of itensResult.rows) {
-            if (operacao === 'entrada') {
-                await this.adicionarEstoque(client, item);
-            } else if (operacao === 'saida') {
-                await this.removerEstoque(client, item);
-            }
-        }
-    }
-
-    /**
-     * Adicionar ao estoque
-     */
-    async adicionarEstoque(client, item) {
-        const sql = `
-            INSERT INTO estoque (produto_id, quantidade_atual, quantidade_disponivel, valor_unitario_medio)
-            VALUES ($1, $2, $2, $3)
-            ON CONFLICT (produto_id) 
-            DO UPDATE SET
-                quantidade_atual = estoque.quantidade_atual + $2,
-                quantidade_disponivel = estoque.quantidade_disponivel + $2,
-                valor_unitario_medio = (
-                    (estoque.valor_unitario_medio * estoque.quantidade_atual) + 
-                    ($3 * $2)
-                ) / (estoque.quantidade_atual + $2),
-                atualizado_em = CURRENT_TIMESTAMP
-        `;
-
-        await client.query(sql, [item.produto_id, item.quantidade, item.valor_unitario]);
-    }
-
-    /**
-     * Remover do estoque
-     */
-    async removerEstoque(client, item) {
-        const sql = `
-            UPDATE estoque 
-            SET 
-                quantidade_atual = quantidade_atual - $2,
-                quantidade_disponivel = quantidade_disponivel - $2,
-                atualizado_em = CURRENT_TIMESTAMP
-            WHERE produto_id = $1 AND quantidade_atual >= $2
-        `;
-
-        const result = await client.query(sql, [item.produto_id, item.quantidade]);
-        
-        if (result.rowCount === 0) {
-            throw new Error(`Estoque insuficiente para o produto ID ${item.produto_id}`);
-        }
-    }
-
-    /**
-     * Buscar movimentação com itens
-     */
-    async findWithItens(id) {
-        const sql = `
-            SELECT 
-                m.*,
-                tm.nome as tipo_movimentacao_nome,
-                tm.operacao,
-                so.nome as setor_origem_nome,
-                sd.nome as setor_destino_nome,
-                u.nome as usuario_nome,
-                json_agg(
-                    json_build_object(
-                        'id', mi.id,
-                        'produto_id', mi.produto_id,
-                        'produto_nome', p.nome,
-                        'quantidade', mi.quantidade,
-                        'valor_unitario', mi.valor_unitario,
-                        'valor_total', mi.valor_total,
-                        'observacoes', mi.observacoes
-                    )
-                ) as itens
-            FROM movimentacoes m
-            INNER JOIN tipos_movimentacao tm ON m.tipo_movimentacao_id = tm.id
-            LEFT JOIN setores so ON m.origem_setor_id = so.id
-            LEFT JOIN setores sd ON m.destino_setor_id = sd.id
-            LEFT JOIN usuarios u ON m.usuario_criacao = u.id
-            LEFT JOIN movimentacao_itens mi ON m.id = mi.movimentacao_id
-            LEFT JOIN produtos p ON mi.produto_id = p.id
-            WHERE m.id = $1
-            GROUP BY m.id, tm.nome, tm.operacao, so.nome, sd.nome, u.nome
-        `;
-
-        const result = await this.customQuery(sql, [id]);
-        return result.length > 0 ? result[0] : null;
-    }
-
-    /**
-     * Buscar movimentações por empresa
+     * Buscar movimentações por empresa com filtros
      */
     async findByEmpresa(empresaId, options = {}) {
-        const { dataInicio, dataFim, tipoMovimentacao, setor, ...baseOptions } = options;
-        
+        const {
+            fazenda_id = null,
+            tipo_movimentacao_id = null,
+            data_inicio = null,
+            data_fim = null,
+            status = null,
+            page = 1,
+            limit = 20
+        } = options;
+
+        const offset = (page - 1) * limit;
+        let paramIndex = 1;
+        const params = [empresaId];
+        const conditions = ['m.empresa_id = $1', 'm.ativo = true'];
+
         let sql = `
             SELECT 
-                m.*,
-                tm.nome as tipo_movimentacao_nome,
-                tm.operacao,
-                so.nome as setor_origem_nome,
-                sd.nome as setor_destino_nome,
+                m.id, m.numero_documento, m.data_movimentacao,
+                m.valor_total, m.status, m.observacoes, m.criado_em,
+                tm.nome as tipo_movimentacao, tm.operacao, tm.codigo,
+                f.nome as fazenda_nome,
+                forn.nome as fornecedor_nome,
+                cli.nome as cliente_nome,
                 u.nome as usuario_nome,
+                so.nome as origem_setor_nome,
+                sd.nome as destino_setor_nome,
                 COUNT(mi.id) as total_itens
             FROM movimentacoes m
             INNER JOIN tipos_movimentacao tm ON m.tipo_movimentacao_id = tm.id
+            INNER JOIN fazendas f ON m.fazenda_id = f.id
+            LEFT JOIN fornecedores forn ON m.fornecedor_id = forn.id
+            LEFT JOIN clientes cli ON m.cliente_id = cli.id
+            LEFT JOIN usuarios u ON m.usuario_criacao = u.id
             LEFT JOIN setores so ON m.origem_setor_id = so.id
             LEFT JOIN setores sd ON m.destino_setor_id = sd.id
-            LEFT JOIN usuarios u ON m.usuario_criacao = u.id
             LEFT JOIN movimentacao_itens mi ON m.id = mi.movimentacao_id
-            WHERE m.empresa_id = $1 AND m.ativo = true
         `;
 
-        const params = [empresaId];
-        let paramIndex = 2;
-
-        if (dataInicio) {
-            sql += ` AND m.data_movimentacao >= $${paramIndex}`;
-            params.push(dataInicio);
+        // Filtros dinâmicos
+        if (fazenda_id) {
             paramIndex++;
+            conditions.push(`m.fazenda_id = $${paramIndex}`);
+            params.push(fazenda_id);
         }
 
-        if (dataFim) {
-            sql += ` AND m.data_movimentacao <= $${paramIndex}`;
-            params.push(dataFim);
+        if (tipo_movimentacao_id) {
             paramIndex++;
+            conditions.push(`m.tipo_movimentacao_id = $${paramIndex}`);
+            params.push(tipo_movimentacao_id);
         }
 
-        if (tipoMovimentacao) {
-            sql += ` AND m.tipo_movimentacao_id = $${paramIndex}`;
-            params.push(tipoMovimentacao);
+        if (data_inicio) {
             paramIndex++;
+            conditions.push(`m.data_movimentacao >= $${paramIndex}`);
+            params.push(data_inicio);
         }
 
-        if (setor) {
-            sql += ` AND (m.origem_setor_id = $${paramIndex} OR m.destino_setor_id = $${paramIndex})`;
-            params.push(setor);
+        if (data_fim) {
             paramIndex++;
+            conditions.push(`m.data_movimentacao <= $${paramIndex}`);
+            params.push(data_fim);
         }
 
-        sql += ` GROUP BY m.id, tm.nome, tm.operacao, so.nome, sd.nome, u.nome`;
+        if (status) {
+            paramIndex++;
+            conditions.push(`m.status = $${paramIndex}`);
+            params.push(status);
+        }
+
+        sql += ` WHERE ${conditions.join(' AND ')}`;
+        sql += ` GROUP BY m.id, tm.id, f.id, forn.id, cli.id, u.id, so.id, sd.id`;
         sql += ` ORDER BY m.data_movimentacao DESC`;
 
-        if (baseOptions.limit) {
-            sql += ` LIMIT $${paramIndex}`;
-            params.push(baseOptions.limit);
-            paramIndex++;
-        }
+        // Paginação
+        paramIndex++;
+        sql += ` LIMIT $${paramIndex}`;
+        params.push(limit);
 
-        if (baseOptions.offset) {
-            sql += ` OFFSET $${paramIndex}`;
-            params.push(baseOptions.offset);
-        }
+        paramIndex++;
+        sql += ` OFFSET $${paramIndex}`;
+        params.push(offset);
 
-        return await this.customQuery(sql, params);
+        const result = await query(sql, params);
+        return result.rows.map(row => this.castAttributes(row));
     }
 
     /**
-     * Relatório de movimentações por período
+     * Buscar movimentação por ID com itens
      */
-    async getRelatorioMovimentacoes(empresaId, dataInicio, dataFim) {
-        const sql = `
+    async findByIdWithItens(id, empresaId = null) {
+        let sql = `
             SELECT 
-                tm.nome as tipo_movimentacao,
-                tm.operacao,
-                COUNT(m.id) as total_movimentacoes,
-                SUM(m.valor_total) as valor_total,
-                SUM(CASE WHEN tm.operacao = 'entrada' THEN m.valor_total ELSE 0 END) as valor_entradas,
-                SUM(CASE WHEN tm.operacao = 'saida' THEN m.valor_total ELSE 0 END) as valor_saidas
+                m.*,
+                tm.nome as tipo_movimentacao, tm.operacao, tm.codigo,
+                f.nome as fazenda_nome,
+                forn.nome as fornecedor_nome,
+                cli.nome as cliente_nome,
+                u.nome as usuario_nome,
+                so.nome as origem_setor_nome,
+                sd.nome as destino_setor_nome
             FROM movimentacoes m
             INNER JOIN tipos_movimentacao tm ON m.tipo_movimentacao_id = tm.id
-            WHERE m.empresa_id = $1 
-                AND m.data_movimentacao BETWEEN $2 AND $3
-                AND m.ativo = true
-            GROUP BY tm.id, tm.nome, tm.operacao
-            ORDER BY tm.nome
+            INNER JOIN fazendas f ON m.fazenda_id = f.id
+            LEFT JOIN fornecedores forn ON m.fornecedor_id = forn.id
+            LEFT JOIN clientes cli ON m.cliente_id = cli.id
+            LEFT JOIN usuarios u ON m.usuario_criacao = u.id
+            LEFT JOIN setores so ON m.origem_setor_id = so.id
+            LEFT JOIN setores sd ON m.destino_setor_id = sd.id
+            WHERE m.id = $1 AND m.ativo = true
         `;
 
-        return await this.customQuery(sql, [empresaId, dataInicio, dataFim]);
+        const params = [id];
+
+        if (empresaId) {
+            sql += ` AND m.empresa_id = $2`;
+            params.push(empresaId);
+        }
+
+        const result = await query(sql, params);
+
+        if (result.rows.length === 0) {
+            return null;
+        }
+
+        const movimentacao = this.castAttributes(result.rows[0]);
+
+        // Buscar itens da movimentação
+        const itensSQL = `
+            SELECT 
+                mi.*,
+                p.nome as produto_nome,
+                p.codigo_interno as produto_codigo,
+                t.nome as tipo_nome,
+                l.numero_lote
+            FROM movimentacao_itens mi
+            INNER JOIN produtos p ON mi.produto_id = p.id
+            INNER JOIN tipos t ON p.tipo_id = t.id
+            LEFT JOIN lotes l ON mi.lote_id = l.id
+            WHERE mi.movimentacao_id = $1
+            ORDER BY mi.id
+        `;
+
+        const itensResult = await query(itensSQL, [id]);
+        movimentacao.itens = itensResult.rows;
+
+        return movimentacao;
+    }
+
+    /**
+     * Criar movimentação completa com itens
+     */
+    async createCompleta(dadosMovimentacao, itens) {
+        const client = await getClient();
+
+        try {
+            await client.query('BEGIN');
+
+            // 1. Criar movimentação
+            const movimentacaoSQL = `
+                INSERT INTO movimentacoes (
+                    empresa_id, fazenda_id, tipo_movimentacao_id, numero_documento,
+                    data_movimentacao, origem_setor_id, destino_setor_id,
+                    fornecedor_id, cliente_id, valor_total, observacoes,
+                    status, usuario_criacao
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                RETURNING id
+            `;
+
+            const movParams = [
+                dadosMovimentacao.empresa_id,
+                dadosMovimentacao.fazenda_id,
+                dadosMovimentacao.tipo_movimentacao_id,
+                dadosMovimentacao.numero_documento || null,
+                dadosMovimentacao.data_movimentacao || new Date(),
+                dadosMovimentacao.origem_setor_id || null,
+                dadosMovimentacao.destino_setor_id || null,
+                dadosMovimentacao.fornecedor_id || null,
+                dadosMovimentacao.cliente_id || null,
+                dadosMovimentacao.valor_total || 0,
+                dadosMovimentacao.observacoes || null,
+                dadosMovimentacao.status || 'confirmado',
+                dadosMovimentacao.usuario_criacao
+            ];
+
+            const movResult = await client.query(movimentacaoSQL, movParams);
+            const movimentacaoId = movResult.rows[0].id;
+
+            // 2. Criar itens da movimentação
+            let valorTotalCalculado = 0;
+
+            for (const item of itens) {
+                const itemSQL = `
+                    INSERT INTO movimentacao_itens (
+                        movimentacao_id, produto_id, lote_id, quantidade,
+                        valor_unitario, data_vencimento, observacoes
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+                    RETURNING id
+                `;
+
+                const valorItem = (item.quantidade || 0) * (item.valor_unitario || 0);
+                valorTotalCalculado += valorItem;
+
+                await client.query(itemSQL, [
+                    movimentacaoId,
+                    item.produto_id,
+                    item.lote_id || null,
+                    item.quantidade,
+                    item.valor_unitario || 0,
+                    item.data_vencimento || null,
+                    item.observacoes || null
+                ]);
+            }
+
+            // 3. Atualizar valor total da movimentação
+            if (valorTotalCalculado > 0) {
+                await client.query(
+                    'UPDATE movimentacoes SET valor_total = $1 WHERE id = $2',
+                    [valorTotalCalculado, movimentacaoId]
+                );
+            }
+
+            // 4. Atualizar estoque automaticamente (trigger do banco fará isso)
+            // O trigger atualizar_estoque_trigger já está definido no DDL
+
+            await client.query('COMMIT');
+
+            // Buscar movimentação criada com todos os dados
+            return await this.findByIdWithItens(movimentacaoId);
+
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
+        }
+    }
+
+    /**
+     * Aprovar movimentação
+     */
+    async aprovar(id, usuarioAprovacao) {
+        const sql = `
+            UPDATE movimentacoes 
+            SET status = 'aprovado', 
+                usuario_aprovacao = $1, 
+                data_aprovacao = NOW(),
+                atualizado_em = NOW()
+            WHERE id = $2 AND status = 'pendente' AND ativo = true
+            RETURNING *
+        `;
+
+        const result = await query(sql, [usuarioAprovacao, id]);
+        return result.rows.length > 0 ? this.castAttributes(result.rows[0]) : null;
     }
 
     /**
      * Cancelar movimentação
      */
-    async cancelar(id, userId, motivo) {
-        return await this.transaction(async (client) => {
-            // Buscar movimentação com tipo
-            const movResult = await client.query(`
-                SELECT m.*, tm.operacao 
-                FROM movimentacoes m
-                INNER JOIN tipos_movimentacao tm ON m.tipo_movimentacao_id = tm.id
-                WHERE m.id = $1 AND m.status = 'ativo'
-            `, [id]);
+    async cancelar(id, usuarioId, motivo = null) {
+        const client = await getClient();
 
-            if (movResult.rows.length === 0) {
-                throw new Error('Movimentação não encontrada ou já cancelada');
+        try {
+            await client.query('BEGIN');
+
+            // 1. Verificar se pode ser cancelada
+            const checkSQL = `
+                SELECT id, status FROM movimentacoes 
+                WHERE id = $1 AND ativo = true
+            `;
+            const checkResult = await client.query(checkSQL, [id]);
+
+            if (checkResult.rows.length === 0) {
+                throw new Error('Movimentação não encontrada');
             }
 
-            const movimentacao = movResult.rows[0];
+            const mov = checkResult.rows[0];
+            if (mov.status === 'cancelado') {
+                throw new Error('Movimentação já está cancelada');
+            }
 
-            // Reverter estoque
-            await this.reverterEstoque(client, id, movimentacao.operacao);
+            // 2. Reverter estoque (criar movimentação inversa)
+            // TODO: Implementar reversão de estoque
 
-            // Marcar como cancelada
-            await client.query(`
+            // 3. Marcar como cancelada
+            const cancelSQL = `
                 UPDATE movimentacoes 
-                SET status = 'cancelado', 
-                    observacoes = CONCAT(observacoes, ' - CANCELADO: ', $2),
-                    atualizado_por = $3,
-                    atualizado_em = CURRENT_TIMESTAMP
+                SET status = 'cancelado',
+                    observacoes = COALESCE(observacoes, '') || ' | CANCELADO: ' || COALESCE($2, 'Sem motivo'),
+                    atualizado_em = NOW()
                 WHERE id = $1
-            `, [id, motivo, userId]);
+                RETURNING *
+            `;
 
-            return await this.findWithItens(id);
-        });
+            const result = await client.query(cancelSQL, [id, motivo]);
+
+            await client.query('COMMIT');
+            return result.rows.length > 0 ? this.castAttributes(result.rows[0]) : null;
+
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
+        }
     }
 
     /**
-     * Reverter estoque de uma movimentação cancelada
+     * Buscar movimentações por período
      */
-    async reverterEstoque(client, movimentacaoId, operacao) {
-        const itensResult = await client.query(`
-            SELECT produto_id, quantidade, valor_unitario 
-            FROM movimentacao_itens 
-            WHERE movimentacao_id = $1
-        `, [movimentacaoId]);
+    async findByPeriodo(empresaId, dataInicio, dataFim, options = {}) {
+        const { tipo_movimentacao_id = null, fazenda_id = null } = options;
 
-        for (const item of itensResult.rows) {
-            if (operacao === 'entrada') {
-                // Reverter entrada = remover do estoque
-                await this.removerEstoque(client, item);
-            } else if (operacao === 'saida') {
-                // Reverter saída = adicionar ao estoque
-                await this.adicionarEstoque(client, item);
-            }
+        let sql = `
+            SELECT 
+                m.*,
+                tm.nome as tipo_movimentacao, tm.operacao,
+                f.nome as fazenda_nome,
+                COUNT(mi.id) as total_itens,
+                SUM(mi.quantidade * mi.valor_unitario) as valor_calculado
+            FROM movimentacoes m
+            INNER JOIN tipos_movimentacao tm ON m.tipo_movimentacao_id = tm.id
+            INNER JOIN fazendas f ON m.fazenda_id = f.id
+            LEFT JOIN movimentacao_itens mi ON m.id = mi.movimentacao_id
+            WHERE m.empresa_id = $1 
+                AND m.data_movimentacao >= $2 
+                AND m.data_movimentacao <= $3
+                AND m.ativo = true
+        `;
+
+        const params = [empresaId, dataInicio, dataFim];
+        let paramIndex = 4;
+
+        if (tipo_movimentacao_id) {
+            sql += ` AND m.tipo_movimentacao_id = ${paramIndex}`;
+            params.push(tipo_movimentacao_id);
+            paramIndex++;
         }
+
+        if (fazenda_id) {
+            sql += ` AND m.fazenda_id = ${paramIndex}`;
+            params.push(fazenda_id);
+        }
+
+        sql += ` GROUP BY m.id, tm.id, f.id ORDER BY m.data_movimentacao DESC`;
+
+        const result = await query(sql, params);
+        return result.rows.map(row => this.castAttributes(row));
+    }
+
+    /**
+     * Obter estatísticas de movimentações
+     */
+    async getEstatisticas(empresaId, periodo = 'mes') {
+        let intervalCondition = '';
+
+        switch (periodo) {
+            case 'semana':
+                intervalCondition = "DATE_TRUNC('week', m.data_movimentacao) = DATE_TRUNC('week', CURRENT_DATE)";
+                break;
+            case 'mes':
+                intervalCondition = "DATE_TRUNC('month', m.data_movimentacao) = DATE_TRUNC('month', CURRENT_DATE)";
+                break;
+            case 'ano':
+                intervalCondition = "DATE_TRUNC('year', m.data_movimentacao) = DATE_TRUNC('year', CURRENT_DATE)";
+                break;
+            default:
+                intervalCondition = "DATE_TRUNC('month', m.data_movimentacao) = DATE_TRUNC('month', CURRENT_DATE)";
+        }
+
+        const sql = `
+            SELECT 
+                tm.nome as tipo_movimentacao,
+                tm.operacao,
+                COUNT(m.id) as total_movimentacoes,
+                COALESCE(SUM(m.valor_total), 0) as valor_total,
+                COALESCE(AVG(m.valor_total), 0) as valor_medio
+            FROM movimentacoes m
+            INNER JOIN tipos_movimentacao tm ON m.tipo_movimentacao_id = tm.id
+            WHERE m.empresa_id = $1 
+                AND ${intervalCondition}
+                AND m.status = 'confirmado'
+                AND m.ativo = true
+            GROUP BY tm.id, tm.nome, tm.operacao
+            ORDER BY valor_total DESC
+        `;
+
+        const result = await query(sql, [empresaId]);
+        return result.rows;
+    }
+
+    /**
+     * Buscar movimentações pendentes de aprovação
+     */
+    async findPendentesAprovacao(empresaId, usuarioId = null) {
+        let sql = `
+            SELECT 
+                m.id, m.numero_documento, m.data_movimentacao,
+                m.valor_total, m.observacoes, m.criado_em,
+                tm.nome as tipo_movimentacao,
+                f.nome as fazenda_nome,
+                u.nome as usuario_criacao_nome,
+                COUNT(mi.id) as total_itens,
+                EXTRACT(DAYS FROM (NOW() - m.criado_em)) as dias_pendente
+            FROM movimentacoes m
+            INNER JOIN tipos_movimentacao tm ON m.tipo_movimentacao_id = tm.id
+            INNER JOIN fazendas f ON m.fazenda_id = f.id
+            INNER JOIN usuarios u ON m.usuario_criacao = u.id
+            LEFT JOIN movimentacao_itens mi ON m.id = mi.movimentacao_id
+            WHERE m.empresa_id = $1 
+                AND m.status = 'pendente'
+                AND m.ativo = true
+        `;
+
+        const params = [empresaId];
+
+        if (usuarioId) {
+            sql += ` AND m.usuario_criacao != $2`; // Não mostrar próprias movimentações
+            params.push(usuarioId);
+        }
+
+        sql += ` GROUP BY m.id, tm.nome, f.nome, u.nome`;
+        sql += ` ORDER BY m.criado_em ASC`; // Mais antigas primeiro
+
+        const result = await query(sql, params);
+        return result.rows.map(row => this.castAttributes(row));
+    }
+
+    /**
+     * Buscar produtos mais movimentados
+     */
+    async findProdutosMaisMovimentados(empresaId, limite = 10, periodo = 'mes') {
+        let intervalCondition = '';
+
+        switch (periodo) {
+            case 'semana':
+                intervalCondition = "AND DATE_TRUNC('week', m.data_movimentacao) = DATE_TRUNC('week', CURRENT_DATE)";
+                break;
+            case 'mes':
+                intervalCondition = "AND DATE_TRUNC('month', m.data_movimentacao) = DATE_TRUNC('month', CURRENT_DATE)";
+                break;
+            case 'ano':
+                intervalCondition = "AND DATE_TRUNC('year', m.data_movimentacao) = DATE_TRUNC('year', CURRENT_DATE)";
+                break;
+            default:
+                intervalCondition = "AND DATE_TRUNC('month', m.data_movimentacao) = DATE_TRUNC('month', CURRENT_DATE)";
+        }
+
+        const sql = `
+            SELECT 
+                p.id, p.nome as produto_nome, p.codigo_interno,
+                t.nome as tipo_nome,
+                COUNT(mi.id) as total_movimentacoes,
+                SUM(mi.quantidade) as quantidade_total_movimentada,
+                SUM(mi.quantidade * mi.valor_unitario) as valor_total_movimentado
+            FROM movimentacao_itens mi
+            INNER JOIN movimentacoes m ON mi.movimentacao_id = m.id
+            INNER JOIN produtos p ON mi.produto_id = p.id
+            INNER JOIN tipos t ON p.tipo_id = t.id
+            WHERE m.empresa_id = $1 
+                AND m.status = 'confirmado'
+                AND m.ativo = true
+                ${intervalCondition}
+            GROUP BY p.id, p.nome, p.codigo_interno, t.nome
+            ORDER BY total_movimentacoes DESC, quantidade_total_movimentada DESC
+            LIMIT $2
+        `;
+
+        const result = await query(sql, [empresaId, limite]);
+        return result.rows;
+    }
+
+    /**
+     * Gerar número de documento automático
+     */
+    async gerarNumeroDocumento(empresaId, tipoMovimentacaoId) {
+        const sql = `
+            SELECT 
+                tm.codigo,
+                COUNT(m.id) + 1 as proximo_numero
+            FROM tipos_movimentacao tm
+            LEFT JOIN movimentacoes m ON tm.id = m.tipo_movimentacao_id 
+                AND m.empresa_id = $1 
+                AND EXTRACT(YEAR FROM m.data_movimentacao) = EXTRACT(YEAR FROM CURRENT_DATE)
+            WHERE tm.id = $2
+            GROUP BY tm.codigo
+        `;
+
+        const result = await query(sql, [empresaId, tipoMovimentacaoId]);
+
+        if (result.rows.length === 0) {
+            throw new Error('Tipo de movimentação não encontrado');
+        }
+
+        const { codigo, proximo_numero } = result.rows[0];
+        const ano = new Date().getFullYear();
+
+        return `${codigo}-${ano}-${String(proximo_numero).padStart(6, '0')}`;
+    }
+
+    /**
+     * Validar dados da movimentação
+     */
+    validate(data) {
+        const errors = [];
+
+        if (!data.empresa_id) {
+            errors.push('Empresa é obrigatória');
+        }
+
+        if (!data.fazenda_id) {
+            errors.push('Fazenda é obrigatória');
+        }
+
+        if (!data.tipo_movimentacao_id) {
+            errors.push('Tipo de movimentação é obrigatório');
+        }
+
+        if (!data.data_movimentacao) {
+            errors.push('Data da movimentação é obrigatória');
+        }
+
+        if (data.valor_total && data.valor_total < 0) {
+            errors.push('Valor total não pode ser negativo');
+        }
+
+        return errors;
+    }
+
+    /**
+     * Validar item da movimentação
+     */
+    validateItem(item) {
+        const errors = [];
+
+        if (!item.produto_id) {
+            errors.push('Produto é obrigatório');
+        }
+
+        if (!item.quantidade || item.quantidade <= 0) {
+            errors.push('Quantidade deve ser maior que zero');
+        }
+
+        if (item.valor_unitario && item.valor_unitario < 0) {
+            errors.push('Valor unitário não pode ser negativo');
+        }
+
+        return errors;
     }
 }
 
-module.exports = new Movimentacao(); 
+module.exports = Movimentacao;

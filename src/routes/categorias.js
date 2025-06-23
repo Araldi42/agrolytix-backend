@@ -1,6 +1,6 @@
 const express = require('express');
 const categoriasController = require('../controllers/categoriasController');
-const { autenticacao } = require('../middlewares/autenticacao');
+const { autenticacao, requerNivel, requerPermissao } = require('../middlewares/authorizationMiddleware');
 
 const router = express.Router();
 
@@ -9,10 +9,10 @@ router.use(autenticacao);
 
 /**
  * @route GET /api/categorias
- * @desc Buscar todas as categorias
+ * @desc Listar categorias com paginação e filtros
  * @access Private
  */
-router.get('/', categoriasController.buscarTodas);
+router.get('/', categoriasController.listar);
 
 /**
  * @route GET /api/categorias/:id
@@ -24,23 +24,32 @@ router.get('/:id', categoriasController.buscarPorId);
 /**
  * @route POST /api/categorias
  * @desc Criar nova categoria
- * @access Private
+ * @access Private - Requer nível gerente ou superior
  */
-router.post('/', categoriasController.criar);
+router.post('/',
+    requerNivel(3),
+    categoriasController.criar
+);
 
 /**
  * @route PUT /api/categorias/:id
  * @desc Atualizar categoria
- * @access Private
+ * @access Private - Requer nível gerente ou superior
  */
-router.put('/:id', categoriasController.atualizar);
+router.put('/:id',
+    requerNivel(3),
+    categoriasController.atualizar
+);
 
 /**
  * @route DELETE /api/categorias/:id
  * @desc Excluir categoria
- * @access Private
+ * @access Private - Requer nível gerente ou superior
  */
-router.delete('/:id', categoriasController.excluir);
+router.delete('/:id',
+    requerNivel(3),
+    categoriasController.excluir
+);
 
 /**
  * @route GET /api/categorias/:id/tipos
@@ -48,5 +57,56 @@ router.delete('/:id', categoriasController.excluir);
  * @access Private
  */
 router.get('/:id/tipos', categoriasController.buscarTipos);
+
+/**
+ * @route GET /api/categorias/mais-utilizadas
+ * @desc Buscar categorias mais utilizadas
+ * @access Private
+ */
+router.get('/stats/mais-utilizadas', categoriasController.maisUtilizadas);
+
+/**
+ * @route POST /api/categorias/reordenar
+ * @desc Reordenar categorias
+ * @access Private - Requer nível gerente ou superior
+ */
+router.post('/actions/reordenar',
+    requerNivel(3),
+    categoriasController.reordenar
+);
+
+/**
+ * @route GET /api/categorias/stats/estatisticas
+ * @desc Obter estatísticas das categorias
+ * @access Private
+ */
+router.get('/stats/estatisticas', categoriasController.estatisticas);
+
+/**
+ * @route GET /api/categorias/stats/dashboard
+ * @desc Dashboard de categorias
+ * @access Private
+ */
+router.get('/stats/dashboard', categoriasController.dashboard);
+
+/**
+ * @route GET /api/categorias/globais
+ * @desc Buscar categorias globais (apenas admin sistema)
+ * @access Private - Admin sistema apenas
+ */
+router.get('/admin/globais',
+    requerNivel(1),
+    categoriasController.globais
+);
+
+/**
+ * @route POST /api/categorias/globais
+ * @desc Criar categoria global (apenas admin sistema)
+ * @access Private - Admin sistema apenas
+ */
+router.post('/admin/globais',
+    requerNivel(1),
+    categoriasController.criarGlobal
+);
 
 module.exports = router;
