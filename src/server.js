@@ -1,4 +1,5 @@
 const express = require('express');
+const cors = require('cors'); // ← NOVO: Importar CORS
 require('dotenv').config();
 
 // Importar middlewares
@@ -20,6 +21,44 @@ const { testarConexao } = require('./config/database');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// ← NOVO: Configuração de CORS (DEVE VIR ANTES DOS OUTROS MIDDLEWARES)
+const corsOptions = {
+    origin: [
+        'http://localhost:3000',
+        'http://localhost:3001',
+        'http://localhost:3002',
+        'http://localhost:3003',
+        'http://127.0.0.1:3000',
+        'http://127.0.0.1:3001',
+        'http://127.0.0.1:3002',
+        'http://127.0.0.1:3003'
+    ],
+    credentials: true, // Permitir cookies e headers de autorização
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: [
+        'Content-Type',
+        'Authorization',
+        'X-Requested-With',
+        'Accept',
+        'Origin'
+    ],
+    optionsSuccessStatus: 200
+};
+
+// Aplicar CORS
+if (process.env.NODE_ENV === 'development') {
+    // Em desenvolvimento, permitir qualquer origem
+    app.use(cors({
+        origin: true,
+        credentials: true
+    }));
+    console.log('🌐 CORS configurado para desenvolvimento (todas as origens permitidas)');
+} else {
+    // Em produção, usar configuração específica
+    app.use(cors(corsOptions));
+    console.log('🌐 CORS configurado para produção');
+}
+
 // Configuração de middlewares globais
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
@@ -27,7 +66,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Middleware para logs de requisições (desenvolvimento)
 if (process.env.NODE_ENV === 'development') {
     app.use((req, res, next) => {
-        console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+        console.log(`${new Date().toISOString()} - ${req.method} ${req.path} - Origin: ${req.headers.origin || 'no-origin'}`);
         next();
     });
 }
@@ -56,6 +95,7 @@ app.get('/', (req, res) => {
         mensagem: 'API Agrolytix funcionando!',
         versao: '2.0.0',
         timestamp: new Date().toISOString(),
+        cors_enabled: true, // ← NOVO: Indicar que CORS está habilitado
         endpoints: [
             'GET  / - Status da API',
             'POST /api/auth/login - Login',
@@ -83,7 +123,8 @@ app.get('/api/saude', async (req, res) => {
             timestamp: new Date().toISOString(),
             servicos: {
                 api: 'funcionando',
-                banco_dados: conexaoBanco ? 'conectado' : 'desconectado'
+                banco_dados: conexaoBanco ? 'conectado' : 'desconectado',
+                cors: 'habilitado' // ← NOVO: Status do CORS
             },
             uptime: process.uptime(),
             memoria: {
@@ -123,6 +164,7 @@ const iniciarServidor = async () => {
             console.log(`📍 Rodando em: http://localhost:${PORT}`);
             console.log(`🌍 Ambiente: ${process.env.NODE_ENV || 'development'}`);
             console.log(`💾 Banco: ${process.env.DB_NAME} em ${process.env.DB_HOST}`);
+            console.log(`🌐 CORS: ${process.env.NODE_ENV === 'development' ? 'Aberto (dev)' : 'Configurado (prod)'}`);
             console.log('⏰ Iniciado em:', new Date().toISOString());
             console.log('=====================================');
         });

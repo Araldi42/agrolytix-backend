@@ -12,14 +12,14 @@ router.use(autenticacao);
  * @desc Listar categorias com paginação e filtros
  * @access Private
  */
-router.get('/', categoriasController.listar);
+router.get('/', categoriasController.listar.bind(categoriasController));
 
 /**
  * @route GET /api/categorias/:id
  * @desc Buscar categoria por ID
  * @access Private
  */
-router.get('/:id', categoriasController.buscarPorId);
+router.get('/:id', categoriasController.buscarPorId.bind(categoriasController));
 
 /**
  * @route POST /api/categorias
@@ -28,7 +28,7 @@ router.get('/:id', categoriasController.buscarPorId);
  */
 router.post('/',
     requerNivel(3),
-    categoriasController.criar
+    categoriasController.criar.bind(categoriasController)
 );
 
 /**
@@ -38,7 +38,7 @@ router.post('/',
  */
 router.put('/:id',
     requerNivel(3),
-    categoriasController.atualizar
+    categoriasController.atualizar.bind(categoriasController)
 );
 
 /**
@@ -48,7 +48,7 @@ router.put('/:id',
  */
 router.delete('/:id',
     requerNivel(3),
-    categoriasController.excluir
+    categoriasController.excluir.bind(categoriasController)
 );
 
 /**
@@ -56,14 +56,14 @@ router.delete('/:id',
  * @desc Buscar tipos de uma categoria
  * @access Private
  */
-router.get('/:id/tipos', categoriasController.buscarTipos);
+router.get('/:id/tipos', categoriasController.buscarTipos.bind(categoriasController));
 
 /**
  * @route GET /api/categorias/mais-utilizadas
  * @desc Buscar categorias mais utilizadas
  * @access Private
  */
-router.get('/stats/mais-utilizadas', categoriasController.maisUtilizadas);
+router.get('/stats/mais-utilizadas', categoriasController.maisUtilizadas.bind(categoriasController));
 
 /**
  * @route POST /api/categorias/reordenar
@@ -72,7 +72,7 @@ router.get('/stats/mais-utilizadas', categoriasController.maisUtilizadas);
  */
 router.post('/actions/reordenar',
     requerNivel(3),
-    categoriasController.reordenar
+    categoriasController.reordenar.bind(categoriasController)
 );
 
 /**
@@ -80,14 +80,14 @@ router.post('/actions/reordenar',
  * @desc Obter estatísticas das categorias
  * @access Private
  */
-router.get('/stats/estatisticas', categoriasController.estatisticas);
+router.get('/stats/estatisticas', categoriasController.estatisticas.bind(categoriasController));
 
 /**
  * @route GET /api/categorias/stats/dashboard
  * @desc Dashboard de categorias
  * @access Private
  */
-router.get('/stats/dashboard', categoriasController.dashboard);
+router.get('/stats/dashboard', categoriasController.dashboard.bind(categoriasController));
 
 /**
  * @route GET /api/categorias/globais
@@ -96,7 +96,7 @@ router.get('/stats/dashboard', categoriasController.dashboard);
  */
 router.get('/admin/globais',
     requerNivel(1),
-    categoriasController.globais
+    categoriasController.globais.bind(categoriasController)
 );
 
 /**
@@ -106,7 +106,7 @@ router.get('/admin/globais',
  */
 router.post('/admin/globais',
     requerNivel(1),
-    categoriasController.criarGlobal
+    categoriasController.criarGlobal.bind(categoriasController)
 );
 
 module.exports = router;

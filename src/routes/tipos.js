@@ -12,14 +12,14 @@ router.use(autenticacao);
  * @desc Listar tipos com paginação e filtros
  * @access Private
  */
-router.get('/', tiposController.listar);
+router.get('/', tiposController.listar.bind(tiposController));
 
 /**
  * @route GET /api/tipos/:id
  * @desc Buscar tipo por ID
  * @access Private
  */
-router.get('/:id', tiposController.buscarPorId);
+router.get('/:id', tiposController.buscarPorId.bind(tiposController));
 
 /**
  * @route POST /api/tipos
@@ -28,7 +28,7 @@ router.get('/:id', tiposController.buscarPorId);
  */
 router.post('/',
     requerNivel(3),
-    tiposController.criar
+    tiposController.criar.bind(tiposController)
 );
 
 /**
@@ -38,7 +38,7 @@ router.post('/',
  */
 router.put('/:id',
     requerNivel(3),
-    tiposController.atualizar
+    tiposController.atualizar.bind(tiposController)
 );
 
 /**
@@ -48,7 +48,7 @@ router.put('/:id',
  */
 router.delete('/:id',
     requerNivel(3),
-    tiposController.excluir
+    tiposController.excluir.bind(tiposController)
 );
 
 /**
@@ -56,56 +56,56 @@ router.delete('/:id',
  * @desc Buscar tipos por categoria
  * @access Private
  */
-router.get('/categoria/:categoria_id', tiposController.porCategoria);
+router.get('/categoria/:categoria_id', tiposController.porCategoria.bind(tiposController));
 
 /**
  * @route GET /api/tipos/:id/produtos
  * @desc Buscar produtos do tipo
  * @access Private
  */
-router.get('/:id/produtos', tiposController.produtos);
+router.get('/:id/produtos', tiposController.produtos.bind(tiposController));
 
 /**
  * @route GET /api/tipos/stats/mais-utilizados
  * @desc Buscar tipos mais utilizados
  * @access Private
  */
-router.get('/stats/mais-utilizados', tiposController.maisUtilizados);
+router.get('/stats/mais-utilizados', tiposController.maisUtilizados.bind(tiposController));
 
 /**
  * @route GET /api/tipos/stats/estoque-baixo
  * @desc Buscar tipos com estoque baixo
  * @access Private
  */
-router.get('/stats/estoque-baixo', tiposController.estoqueBaixo);
+router.get('/stats/estoque-baixo', tiposController.estoqueBaixo.bind(tiposController));
 
 /**
  * @route GET /api/tipos/stats/unidades-medida
  * @desc Buscar unidades de medida disponíveis
  * @access Private
  */
-router.get('/stats/unidades-medida', tiposController.unidadesMedida);
+router.get('/stats/unidades-medida', tiposController.unidadesMedida.bind(tiposController));
 
 /**
  * @route GET /api/tipos/stats/estatisticas
  * @desc Obter estatísticas dos tipos
  * @access Private
  */
-router.get('/stats/estatisticas', tiposController.estatisticas);
+router.get('/stats/estatisticas', tiposController.estatisticas.bind(tiposController));
 
 /**
  * @route GET /api/tipos/stats/dashboard
  * @desc Dashboard de tipos
  * @access Private
  */
-router.get('/stats/dashboard', tiposController.dashboard);
+router.get('/stats/dashboard', tiposController.dashboard.bind(tiposController));
 
 /**
  * @route GET /api/tipos/admin/globais
  * @desc Buscar tipos globais
  * @access Private
  */
-router.get('/admin/globais', tiposController.globais);
+router.get('/admin/globais', tiposController.globais.bind(tiposController));
 
 /**
  * @route POST /api/tipos/admin/globais
@@ -114,7 +114,7 @@ router.get('/admin/globais', tiposController.globais);
  */
 router.post('/admin/globais',
     requerNivel(1),
-    tiposController.criarGlobal
+    tiposController.criarGlobal.bind(tiposController)
 );
 
 /**
@@ -124,7 +124,7 @@ router.post('/admin/globais',
  */
 router.post('/actions/importar',
     requerNivel(3),
-    tiposController.importarDeCategoria
+    tiposController.importarDeCategoria.bind(tiposController)
 );
 
 module.exports = router;

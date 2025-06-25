@@ -14,7 +14,7 @@ router.use(autenticacao);
  */
 router.get('/',
     requerNivel(3),
-    usuariosController.listar
+    usuariosController.listar.bind(usuariosController)
 );
 
 /**
@@ -22,7 +22,7 @@ router.get('/',
  * @desc Buscar usuário por ID
  * @access Private
  */
-router.get('/:id', usuariosController.buscarPorId);
+router.get('/:id', usuariosController.buscarPorId.bind(usuariosController));
 
 /**
  * @route POST /api/usuarios
@@ -31,7 +31,7 @@ router.get('/:id', usuariosController.buscarPorId);
  */
 router.post('/',
     podeGerenciarUsuarios,
-    usuariosController.criar
+    usuariosController.criar.bind(usuariosController)
 );
 
 /**
@@ -39,7 +39,7 @@ router.post('/',
  * @desc Atualizar usuário
  * @access Private
  */
-router.put('/:id', usuariosController.atualizar);
+router.put('/:id', usuariosController.atualizar.bind(usuariosController));
 
 /**
  * @route PUT /api/usuarios/:id/inativar
@@ -48,7 +48,7 @@ router.put('/:id', usuariosController.atualizar);
  */
 router.put('/:id/inativar',
     podeGerenciarUsuarios,
-    usuariosController.inativar
+    usuariosController.inativar.bind(usuariosController)
 );
 
 /**
@@ -58,7 +58,7 @@ router.put('/:id/inativar',
  */
 router.put('/:id/reativar',
     podeGerenciarUsuarios,
-    usuariosController.reativar
+    usuariosController.reativar.bind(usuariosController)
 );
 
 /**
@@ -66,7 +66,7 @@ router.put('/:id/reativar',
  * @desc Alterar senha do usuário
  * @access Private
  */
-router.put('/:id/alterar-senha', usuariosController.alterarSenha);
+router.put('/:id/alterar-senha', usuariosController.alterarSenha.bind(usuariosController));
 
 /**
  * @route GET /api/usuarios/perfil/:perfil_id
@@ -75,7 +75,7 @@ router.put('/:id/alterar-senha', usuariosController.alterarSenha);
  */
 router.get('/perfil/:perfil_id',
     requerNivel(3),
-    usuariosController.buscarPorPerfil
+    usuariosController.buscarPorPerfil.bind(usuariosController)
 );
 
 /**
@@ -85,7 +85,7 @@ router.get('/perfil/:perfil_id',
  */
 router.get('/filters/cargo',
     requerNivel(3),
-    usuariosController.buscarPorCargo
+    usuariosController.buscarPorCargo.bind(usuariosController)
 );
 
 /**
@@ -95,7 +95,7 @@ router.get('/filters/cargo',
  */
 router.get('/stats/inativos',
     requerNivel(3),
-    usuariosController.usuariosInativos
+    usuariosController.usuariosInativos.bind(usuariosController)
 );
 
 /**
@@ -105,7 +105,7 @@ router.get('/stats/inativos',
  */
 router.put('/:id/fazendas',
     podeGerenciarUsuarios,
-    usuariosController.gerenciarFazendas
+    usuariosController.gerenciarFazendas.bind(usuariosController)
 );
 
 /**
@@ -113,7 +113,7 @@ router.put('/:id/fazendas',
  * @desc Buscar fazendas do usuário
  * @access Private
  */
-router.get('/:id/fazendas', usuariosController.fazendasUsuario);
+router.get('/:id/fazendas', usuariosController.fazendasUsuario.bind(usuariosController));
 
 /**
  * @route GET /api/usuarios/stats/estatisticas
@@ -122,7 +122,7 @@ router.get('/:id/fazendas', usuariosController.fazendasUsuario);
  */
 router.get('/stats/estatisticas',
     requerNivel(3),
-    usuariosController.estatisticas
+    usuariosController.estatisticas.bind(usuariosController)
 );
 
 /**
@@ -132,7 +132,7 @@ router.get('/stats/estatisticas',
  */
 router.get('/stats/dashboard',
     requerNivel(3),
-    usuariosController.dashboard
+    usuariosController.dashboard.bind(usuariosController)
 );
 
 module.exports = router;
