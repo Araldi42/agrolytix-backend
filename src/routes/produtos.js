@@ -14,7 +14,7 @@ router.use(autenticacao);
  */
 router.get('/',
     requerPermissao('produtos', 'visualizar'),
-    produtosController.listar
+    produtosController.listar.bind(produtosController)
 );
 
 /**
@@ -24,7 +24,7 @@ router.get('/',
  */
 router.get('/:id',
     requerPermissao('produtos', 'visualizar'),
-    produtosController.buscarPorId
+    produtosController.buscarPorId.bind(produtosController)
 );
 
 /**
@@ -34,7 +34,7 @@ router.get('/:id',
  */
 router.post('/',
     requerPermissao('produtos', 'criar'),
-    produtosController.criar
+    produtosController.criar.bind(produtosController)
 );
 
 /**
@@ -44,7 +44,7 @@ router.post('/',
  */
 router.put('/:id',
     requerPermissao('produtos', 'editar'),
-    produtosController.atualizar
+    produtosController.atualizar.bind(produtosController)
 );
 
 /**
@@ -54,7 +54,7 @@ router.put('/:id',
  */
 router.delete('/:id',
     requerPermissao('produtos', 'excluir'),
-    produtosController.excluir
+    produtosController.excluir.bind(produtosController)
 );
 
 /**
@@ -64,7 +64,7 @@ router.delete('/:id',
  */
 router.get('/stats/estoque-baixo',
     requerPermissao('produtos', 'visualizar'),
-    produtosController.estoqueBaixo
+    produtosController.estoqueBaixo.bind(produtosController)
 );
 
 /**
@@ -74,7 +74,7 @@ router.get('/stats/estoque-baixo',
  */
 router.get('/stats/estatisticas',
     requerPermissao('produtos', 'visualizar'),
-    produtosController.estatisticas
+    produtosController.estatisticas.bind(produtosController)
 );
 
 /**
@@ -84,7 +84,7 @@ router.get('/stats/estatisticas',
  */
 router.get('/manutencao/para-manutencao',
     requerPermissao('produtos', 'visualizar'),
-    produtosController.paraManutencao
+    produtosController.paraManutencao.bind(produtosController)
 );
 
 /**
@@ -94,7 +94,7 @@ router.get('/manutencao/para-manutencao',
  */
 router.put('/actions/status-batch',
     requerPermissao('produtos', 'editar'),
-    produtosController.atualizarStatusBatch
+    produtosController.atualizarStatusBatch.bind(produtosController)
 );
 
 /**
@@ -104,7 +104,7 @@ router.put('/actions/status-batch',
  */
 router.get('/fornecedor/:fornecedor_id',
     requerPermissao('produtos', 'visualizar'),
-    produtosController.porFornecedor
+    produtosController.porFornecedor.bind(produtosController)
 );
 
 /**
@@ -114,7 +114,7 @@ router.get('/fornecedor/:fornecedor_id',
  */
 router.get('/relatorios/geral',
     requerPermissao('produtos', 'visualizar'),
-    produtosController.relatorio
+    produtosController.relatorio.bind(produtosController)
 );
 
 module.exports = router;

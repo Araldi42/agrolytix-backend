@@ -12,14 +12,14 @@ router.use(autenticacao);
  * @desc Listar fornecedores com paginação e filtros
  * @access Private
  */
-router.get('/', fornecedoresController.listar);
+router.get('/', fornecedoresController.listar.bind(fornecedoresController));
 
 /**
  * @route GET /api/fornecedores/:id
  * @desc Buscar fornecedor por ID
  * @access Private
  */
-router.get('/:id', fornecedoresController.buscarPorId);
+router.get('/:id', fornecedoresController.buscarPorId.bind(fornecedoresController));
 
 /**
  * @route POST /api/fornecedores
@@ -28,7 +28,7 @@ router.get('/:id', fornecedoresController.buscarPorId);
  */
 router.post('/',
     requerNivel(3),
-    fornecedoresController.criar
+    fornecedoresController.criar.bind(fornecedoresController)
 );
 
 /**
@@ -38,7 +38,7 @@ router.post('/',
  */
 router.put('/:id',
     requerNivel(3),
-    fornecedoresController.atualizar
+    fornecedoresController.atualizar.bind(fornecedoresController)
 );
 
 /**
@@ -48,7 +48,7 @@ router.put('/:id',
  */
 router.delete('/:id',
     requerNivel(3),
-    fornecedoresController.excluir
+    fornecedoresController.excluir.bind(fornecedoresController)
 );
 
 /**
@@ -56,7 +56,7 @@ router.delete('/:id',
  * @desc Buscar produtos do fornecedor
  * @access Private
  */
-router.get('/:id/produtos', fornecedoresController.produtos);
+router.get('/:id/produtos', fornecedoresController.produtos.bind(fornecedoresController));
 
 /**
  * @route PUT /api/fornecedores/:id/rating
@@ -65,7 +65,7 @@ router.get('/:id/produtos', fornecedoresController.produtos);
  */
 router.put('/:id/rating',
     requerNivel(3),
-    fornecedoresController.atualizarRating
+    fornecedoresController.atualizarRating.bind(fornecedoresController)
 );
 
 /**
@@ -73,42 +73,42 @@ router.put('/:id/rating',
  * @desc Buscar fornecedores mais utilizados
  * @access Private
  */
-router.get('/stats/mais-utilizados', fornecedoresController.maisUtilizados);
+router.get('/stats/mais-utilizados', fornecedoresController.maisUtilizados.bind(fornecedoresController));
 
 /**
  * @route GET /api/fornecedores/stats/por-localizacao
  * @desc Buscar fornecedores por localização
  * @access Private
  */
-router.get('/stats/por-localizacao', fornecedoresController.porLocalizacao);
+router.get('/stats/por-localizacao', fornecedoresController.porLocalizacao.bind(fornecedoresController));
 
 /**
  * @route GET /api/fornecedores/stats/rating-baixo
  * @desc Buscar fornecedores com rating baixo
  * @access Private
  */
-router.get('/stats/rating-baixo', fornecedoresController.ratingBaixo);
+router.get('/stats/rating-baixo', fornecedoresController.ratingBaixo.bind(fornecedoresController));
 
 /**
  * @route GET /api/fornecedores/stats/estatisticas
  * @desc Obter estatísticas dos fornecedores
  * @access Private
  */
-router.get('/stats/estatisticas', fornecedoresController.estatisticas);
+router.get('/stats/estatisticas', fornecedoresController.estatisticas.bind(fornecedoresController));
 
 /**
  * @route GET /api/fornecedores/stats/dashboard
  * @desc Dashboard de fornecedores
  * @access Private
  */
-router.get('/stats/dashboard', fornecedoresController.dashboard);
+router.get('/stats/dashboard', fornecedoresController.dashboard.bind(fornecedoresController));
 
 /**
  * @route GET /api/fornecedores/admin/globais
  * @desc Buscar fornecedores globais
  * @access Private
  */
-router.get('/admin/globais', fornecedoresController.globais);
+router.get('/admin/globais', fornecedoresController.globais.bind(fornecedoresController));
 
 /**
  * @route POST /api/fornecedores/admin/globais
@@ -117,7 +117,7 @@ router.get('/admin/globais', fornecedoresController.globais);
  */
 router.post('/admin/globais',
     requerNivel(1),
-    fornecedoresController.criarGlobal
+    fornecedoresController.criarGlobal.bind(fornecedoresController)
 );
 
 module.exports = router;

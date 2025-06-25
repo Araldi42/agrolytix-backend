@@ -14,7 +14,7 @@ router.use(autenticacao);
  */
 router.get('/',
     requerPermissao('movimentacoes', 'visualizar'),
-    movimentacoesController.listar
+    movimentacoesController.listar.bind(movimentacoesController)
 );
 
 /**
@@ -24,7 +24,7 @@ router.get('/',
  */
 router.get('/:id',
     requerPermissao('movimentacoes', 'visualizar'),
-    movimentacoesController.buscarPorId
+    movimentacoesController.buscarPorId.bind(movimentacoesController)
 );
 
 /**
@@ -34,7 +34,7 @@ router.get('/:id',
  */
 router.post('/',
     requerPermissao('movimentacoes', 'criar'),
-    movimentacoesController.criar
+    movimentacoesController.criar.bind(movimentacoesController)
 );
 
 /**
@@ -44,7 +44,7 @@ router.post('/',
  */
 router.put('/:id/aprovar',
     requerPermissao('movimentacoes', 'aprovar'),
-    movimentacoesController.aprovar
+    movimentacoesController.aprovar.bind(movimentacoesController)
 );
 
 /**
@@ -54,7 +54,7 @@ router.put('/:id/aprovar',
  */
 router.put('/:id/cancelar',
     requerPermissao('movimentacoes', 'cancelar'),
-    movimentacoesController.cancelar
+    movimentacoesController.cancelar.bind(movimentacoesController)
 );
 
 /**
@@ -64,7 +64,7 @@ router.put('/:id/cancelar',
  */
 router.get('/filters/periodo',
     requerPermissao('movimentacoes', 'visualizar'),
-    movimentacoesController.porPeriodo
+    movimentacoesController.porPeriodo.bind(movimentacoesController)
 );
 
 /**
@@ -74,7 +74,7 @@ router.get('/filters/periodo',
  */
 router.get('/stats/estatisticas',
     requerPermissao('movimentacoes', 'visualizar'),
-    movimentacoesController.estatisticas
+    movimentacoesController.estatisticas.bind(movimentacoesController)
 );
 
 /**
@@ -84,7 +84,7 @@ router.get('/stats/estatisticas',
  */
 router.get('/approval/pendentes',
     requerPermissao('movimentacoes', 'aprovar'),
-    movimentacoesController.pendentesAprovacao
+    movimentacoesController.pendentesAprovacao.bind(movimentacoesController)
 );
 
 /**
@@ -94,7 +94,7 @@ router.get('/approval/pendentes',
  */
 router.get('/stats/produtos-mais-movimentados',
     requerPermissao('movimentacoes', 'visualizar'),
-    movimentacoesController.produtosMaisMovimentados
+    movimentacoesController.produtosMaisMovimentados.bind(movimentacoesController)
 );
 
 /**
@@ -104,7 +104,7 @@ router.get('/stats/produtos-mais-movimentados',
  */
 router.get('/relatorios/periodo',
     requerPermissao('movimentacoes', 'visualizar'),
-    movimentacoesController.relatorio
+    movimentacoesController.relatorio.bind(movimentacoesController)
 );
 
 module.exports = router;

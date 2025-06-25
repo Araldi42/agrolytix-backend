@@ -126,7 +126,7 @@ class Usuario extends BaseModel {
     /**
      * Buscar usuário por login ou email para autenticação
      */
-    async findForAuth(identifier) {
+    async findByEmailOrLogin(identifier) {
         const sql = `
             SELECT 
                 u.id, u.nome, u.login, u.email, u.senha, u.ativo,
