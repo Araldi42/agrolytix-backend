@@ -22,8 +22,7 @@ class Movimentacao extends BaseModel {
         // Conversões de tipo automáticas
         this.casts = {
             'valor_total': 'float',
-            'data_movimentacao': 'date',
-            'ativo': 'boolean'
+            'data_movimentacao': 'date'
         };
 
         // Relacionamentos
@@ -534,6 +533,24 @@ class Movimentacao extends BaseModel {
         const ano = new Date().getFullYear();
 
         return `${codigo}-${ano}-${String(proximo_numero).padStart(6, '0')}`;
+    }
+
+    /**
+     * Sobrescrever método count para não usar coluna 'ativo'
+     * Movimentações usam 'status' em vez de 'ativo'
+     */
+    async count(where = {}) {
+        const params = [];
+        const whereClause = this.buildWhereClause(where, params, 1);
+
+        let sql = `SELECT COUNT(*) as total FROM ${this.tableName}`;
+
+        if (whereClause.conditions.length > 0) {
+            sql += ` WHERE ${whereClause.conditions.join(' AND ')}`;
+        }
+
+        const result = await query(sql, params);
+        return parseInt(result.rows[0].total);
     }
 
     /**

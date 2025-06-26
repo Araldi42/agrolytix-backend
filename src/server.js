@@ -14,6 +14,8 @@ const fornecedoresRoutes = require('./routes/fornecedores');
 const produtosRoutes = require('./routes/produtos');
 const movimentacoesRoutes = require('./routes/movimentacoes');
 const empresasRoutes = require('./routes/empresas');
+const lotesRoutes = require('./routes/lotes');
+const fazendasRoutes = require('./routes/fazendas');
 
 // Testar conexão com banco
 const { testarConexao } = require('./config/database');
@@ -89,6 +91,8 @@ app.use('/api/fornecedores', fornecedoresRoutes);
 app.use('/api/produtos', produtosRoutes);
 app.use('/api/movimentacoes', movimentacoesRoutes);
 app.use('/api/empresas', empresasRoutes);
+app.use('/api/lotes', lotesRoutes);
+app.use('/api/fazendas', fazendasRoutes);
 
 // Rota raiz para verificar se o servidor está funcionando
 app.get('/', (req, res) => {
@@ -109,8 +113,12 @@ app.get('/', (req, res) => {
             'GET  /api/tipos - Listar tipos',
             'GET  /api/fornecedores - Listar fornecedores',
             'GET  /api/produtos - Listar produtos (unifica ativos + insumos)',
+            'GET  /api/produtos/:id/lotes - Listar lotes de um produto',
             'GET  /api/movimentacoes - Listar movimentações',
-            'GET  /api/empresas - Listar empresas (admin sistema)'
+            'GET  /api/lotes - Listar lotes',
+            'GET  /api/empresas - Listar empresas (admin sistema)',
+            'GET  /api/fazendas - Listar fazendas',
+            'GET  /api/fazendas/:id/setores - Listar setores de uma fazenda'
         ]
     });
 });

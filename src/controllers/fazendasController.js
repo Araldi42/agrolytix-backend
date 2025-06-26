@@ -593,4 +593,4 @@ class FazendasController extends BaseController {
     }
 }
 
-module.exports = new FazendasController();
+module.exports = FazendasController;

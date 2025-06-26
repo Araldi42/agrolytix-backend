@@ -517,6 +517,51 @@ class ProdutosController extends BaseController {
             next(error);
         }
     }
+
+    /**
+     * Buscar lotes de um produto específico
+     */
+    async buscarLotes(req, res, next) {
+        try {
+            const { id } = req.params;
+            const empresaId = req.usuario.empresa_id;
+
+            // Verificar se produto existe
+            const produto = await this.produtoModel.findById(id);
+            if (!produto) {
+                return this.erroResponse(res, 'Produto não encontrado', 404);
+            }
+
+            // Verificar permissão de acesso
+            if (empresaId && produto.empresa_id !== empresaId) {
+                return this.erroResponse(res, 'Acesso negado a este produto', 403);
+            }
+
+            const options = {
+                apenas_ativos: req.query.apenas_ativos !== 'false',
+                com_estoque: req.query.com_estoque === 'true',
+                vencimento_proximo: req.query.vencimento_proximo ? parseInt(req.query.vencimento_proximo) : null,
+                page: parseInt(req.query.page) || 1,
+                limit: Math.min(parseInt(req.query.limit) || 50, 100)
+            };
+
+            // Importar modelo Lote
+            const Lote = require('../models/Lote');
+            const loteModel = new Lote();
+
+            const lotes = await loteModel.findByProduto(id, options);
+
+            return this.sucessoResponse(
+                res,
+                lotes,
+                'Lotes do produto listados com sucesso'
+            );
+
+        } catch (error) {
+            console.error('Erro ao buscar lotes do produto:', error);
+            next(error);
+        }
+    }
 }
 
 module.exports = new ProdutosController();

@@ -117,4 +117,14 @@ router.get('/relatorios/geral',
     produtosController.relatorio.bind(produtosController)
 );
 
+/**
+ * @route GET /api/produtos/:id/lotes
+ * @desc Buscar lotes de um produto específico
+ * @access Private
+ */
+router.get('/:id/lotes',
+    requerPermissao('produtos', 'visualizar'),
+    produtosController.buscarLotes.bind(produtosController)
+);
+
 module.exports = router;

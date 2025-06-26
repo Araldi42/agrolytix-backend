@@ -7,6 +7,7 @@
 const BaseController = require('./baseController');
 const Movimentacao = require('../models/Movimentacao');
 const ValidationService = require('../services/validationService');
+const { query } = require('../config/database');
 
 class MovimentacoesController extends BaseController {
     constructor() {

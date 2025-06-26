@@ -14,7 +14,7 @@ class Lote extends BaseModel {
         // Campos que podem ser preenchidos em massa
         this.fillable = [
             'produto_id', 'numero_lote', 'data_fabricacao', 'data_vencimento',
-            'quantidade_inicial', 'fornecedor_id', 'observacoes'
+            'quantidade_inicial', 'fornecedor_id', 'observacoes', 'ativo', 'atualizado_por'
         ];
 
         // Conversões de tipo automáticas
