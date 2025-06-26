@@ -58,9 +58,9 @@ class AutenticacaoController extends BaseController {
             }
 
             // Verificar se empresa está ativa (se aplicável)
-            if (usuario.empresa_id && usuario.empresa_status !== 'ativo') {
+        /*     if (usuario.empresa_id && usuario.empresa_status !== 'ativo') {
                 return this.erroResponse(res, 'Empresa inativa ou suspensa. Contate o suporte.', 401);
-            }
+            } */
 
             // Gerar token JWT
             const tokenData = {

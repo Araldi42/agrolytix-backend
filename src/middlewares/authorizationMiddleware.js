@@ -74,9 +74,21 @@ const autenticacao = async (req, res, next) => {
 /**
  * Middleware para verificar nível hierárquico mínimo
  */
+
+// Adicione estes logs temporários no seu authorizationMiddleware.js
+
 const requerNivel = (nivelMinimo) => {
     return (req, res, next) => {
+        console.log('🔒 === DEBUG REQUER NIVEL ===');
+        console.log('URL:', req.originalUrl);
+        console.log('Method:', req.method);
+        console.log('Usuário logado:', req.usuario?.nome);
+        console.log('Nível do usuário:', req.usuario?.nivel_hierarquia);
+        console.log('Nível mínimo requerido:', nivelMinimo);
+        console.log('================================');
+
         if (!req.usuario) {
+            console.log('❌ Usuário não encontrado no req');
             return res.status(401).json({
                 sucesso: false,
                 mensagem: 'Usuário não autenticado'
@@ -84,12 +96,16 @@ const requerNivel = (nivelMinimo) => {
         }
 
         if (req.usuario.nivel_hierarquia > nivelMinimo) {
+            console.log('❌ NÍVEL INSUFICIENTE!');
+            console.log(`   Usuário tem nível ${req.usuario.nivel_hierarquia}`);
+            console.log(`   Precisa de nível ${nivelMinimo} ou menor`);
             return res.status(403).json({
                 sucesso: false,
                 mensagem: 'Nível de acesso insuficiente'
             });
         }
 
+        console.log('✅ Nível suficiente - Prosseguindo');
         next();
     };
 };
@@ -265,15 +281,15 @@ const podeGerenciarUsuarios = async (req, res, next) => {
         // Se for admin empresa, só pode gerenciar usuários da própria empresa
         if (req.usuario.nivel_hierarquia === 2) {
             const usuarioAlvoId = req.params.id || req.body.id;
-            
+
             if (usuarioAlvoId && usuarioAlvoId !== req.usuario.id) {
                 const consulta = `
                     SELECT empresa_id FROM usuarios 
                     WHERE id = $1 AND ativo = true
                 `;
-                
+
                 const resultado = await query(consulta, [usuarioAlvoId]);
-                
+
                 if (resultado.rows.length === 0) {
                     return res.status(404).json({
                         sucesso: false,
@@ -319,7 +335,7 @@ const rateLimiting = (maxRequests = 100, windowMs = 15 * 60 * 1000) => {
         }
 
         const currentRequests = requests.get(ip) || [];
-        
+
         if (currentRequests.length >= maxRequests) {
             return res.status(429).json({
                 sucesso: false,
