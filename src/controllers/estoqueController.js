@@ -594,7 +594,7 @@ class EstoqueController extends BaseController {
                 WHERE mi.produto_id = $1 
                     AND (m.origem_setor_id = $2 OR m.destino_setor_id = $2)
                     AND m.empresa_id = $3
-                    AND m.ativo = true
+
             `;
 
             const params = [produto_id, setor_id, empresaId];
@@ -708,7 +708,7 @@ class EstoqueController extends BaseController {
                     e.data_ultima_movimentacao,
                     p.nome as produto_nome, p.codigo_interno,
                     s.nome as setor_nome,
-                    f.nome as fazenda_nome,
+                    s.fazenda_id, f.nome as fazenda_nome,
                     CURRENT_DATE - e.data_ultima_movimentacao as dias_sem_movimentacao
                 FROM estoque e
                 INNER JOIN produtos p ON e.produto_id = p.id

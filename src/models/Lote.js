@@ -289,7 +289,7 @@ class Lote extends BaseModel {
             LEFT JOIN setores so ON m.origem_setor_id = so.id
             LEFT JOIN setores sd ON m.destino_setor_id = sd.id
             LEFT JOIN usuarios u ON m.usuario_criacao = u.id
-            WHERE mi.lote_id = $1 AND m.ativo = true
+            WHERE mi.lote_id = $1
             ORDER BY m.data_movimentacao DESC
             LIMIT $2
         `;
@@ -307,7 +307,7 @@ class Lote extends BaseModel {
                 e.setor_id, e.quantidade_atual, e.quantidade_reservada,
                 e.valor_unitario_medio, e.data_ultima_movimentacao,
                 s.nome as setor_nome, s.tipo as setor_tipo,
-                f.nome as fazenda_nome
+                s.fazenda_id, f.nome as fazenda_nome
             FROM estoque e
             INNER JOIN setores s ON e.setor_id = s.id
             INNER JOIN fazendas f ON s.fazenda_id = f.id
@@ -376,7 +376,7 @@ class Lote extends BaseModel {
             FROM lotes l
             LEFT JOIN estoque e ON l.id = e.lote_id
             LEFT JOIN movimentacao_itens mi ON l.id = mi.lote_id
-            LEFT JOIN movimentacoes m ON mi.movimentacao_id = m.id AND m.ativo = true
+            LEFT JOIN movimentacoes m ON mi.movimentacao_id = m.id
             WHERE l.id = $1
             GROUP BY l.id, l.quantidade_inicial
         `;

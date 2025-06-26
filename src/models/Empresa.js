@@ -407,6 +407,24 @@ class Empresa extends BaseModel {
     }
 
     /**
+     * Buscar empresas simplificado (apenas ID e nome)
+     * Para uso em dropdowns/selects
+     */
+    async findAllSimplified() {
+        const sql = `
+            SELECT 
+                id, 
+                COALESCE(nome_fantasia, razao_social) as nome
+            FROM empresas 
+            WHERE ativo = true 
+            ORDER BY COALESCE(nome_fantasia, razao_social)
+        `;
+
+        const result = await query(sql);
+        return result.rows;
+    }
+
+    /**
      * Validar dados da empresa
      */
     validate(data) {

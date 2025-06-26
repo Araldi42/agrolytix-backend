@@ -76,12 +76,24 @@ class BaseController {
     /**
      * Sanitiza dados de entrada
      */
-    sanitizarDados(dados, camposTexto = []) {
-        const dadosSanitizados = { ...dados };
+    sanitizarDados(dados, camposPermitidos = []) {
+        const dadosSanitizados = {};
         
-        camposTexto.forEach(campo => {
-            if (dadosSanitizados[campo]) {
-                dadosSanitizados[campo] = sanitizarTexto(dadosSanitizados[campo]);
+        // Filtrar apenas campos permitidos
+        camposPermitidos.forEach(campo => {
+            if (dados.hasOwnProperty(campo)) {
+                let valor = dados[campo];
+                
+                // Sanitizar strings
+                if (typeof valor === 'string') {
+                    valor = sanitizarTexto(valor);
+                    // Converter strings vazias para null em campos específicos
+                    if (valor === '' && (campo.includes('_id') || campo === 'categoria_pai_id')) {
+                        valor = null;
+                    }
+                }
+                
+                dadosSanitizados[campo] = valor;
             }
         });
         

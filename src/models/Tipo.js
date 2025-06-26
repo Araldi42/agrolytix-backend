@@ -270,7 +270,7 @@ class Tipo extends BaseModel {
             SELECT 
                 p.id, p.nome, p.codigo_interno, p.categoria_produto,
                 p.status, p.valor_aquisicao, p.data_aquisicao,
-                f.nome as fazenda_nome,
+                p.fazenda_id, f.nome as fazenda_nome,
                 COALESCE(SUM(e.quantidade_atual), 0) as estoque_atual
             FROM produtos p
             LEFT JOIN fazendas f ON p.fazenda_id = f.id
@@ -293,7 +293,7 @@ class Tipo extends BaseModel {
             paramIndex++;
         }
 
-        sql += ` GROUP BY p.id, p.nome, p.codigo_interno, p.categoria_produto, p.status, p.valor_aquisicao, p.data_aquisicao, f.nome`;
+        sql += ` GROUP BY p.id, p.nome, p.codigo_interno, p.categoria_produto, p.status, p.valor_aquisicao, p.data_aquisicao, p.fazenda_id, f.nome`;
         sql += ` ORDER BY p.nome`;
         sql += ` LIMIT $${paramIndex}`;
         params.push(limit);

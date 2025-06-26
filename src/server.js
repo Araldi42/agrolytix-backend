@@ -13,6 +13,7 @@ const tiposRoutes = require('./routes/tipos');
 const fornecedoresRoutes = require('./routes/fornecedores');
 const produtosRoutes = require('./routes/produtos');
 const movimentacoesRoutes = require('./routes/movimentacoes');
+const empresasRoutes = require('./routes/empresas');
 
 // Testar conexão com banco
 const { testarConexao } = require('./config/database');
@@ -87,6 +88,7 @@ app.use('/api/tipos', tiposRoutes);
 app.use('/api/fornecedores', fornecedoresRoutes);
 app.use('/api/produtos', produtosRoutes);
 app.use('/api/movimentacoes', movimentacoesRoutes);
+app.use('/api/empresas', empresasRoutes);
 
 // Rota raiz para verificar se o servidor está funcionando
 app.get('/', (req, res) => {
@@ -107,7 +109,8 @@ app.get('/', (req, res) => {
             'GET  /api/tipos - Listar tipos',
             'GET  /api/fornecedores - Listar fornecedores',
             'GET  /api/produtos - Listar produtos (unifica ativos + insumos)',
-            'GET  /api/movimentacoes - Listar movimentações'
+            'GET  /api/movimentacoes - Listar movimentações',
+            'GET  /api/empresas - Listar empresas (admin sistema)'
         ]
     });
 });

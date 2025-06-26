@@ -2,7 +2,7 @@ const bcrypt = require('bcryptjs');
 
 async function testPassword() {
     const password = 'admin123';
-    const hash = '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi';
+    const hash = '$2a$12$.L9w5D0r..vwyHxxg55kmOe/WSD1gXC.6K4Vk8a3.n.UWJ1sVOHdy';
     
     console.log('Testando senha...');
     console.log('Senha:', password);

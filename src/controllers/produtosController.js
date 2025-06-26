@@ -99,6 +99,15 @@ class ProdutosController extends BaseController {
             // Definir empresa automaticamente se usuário não for admin sistema
             if (req.usuario.empresa_id) {
                 dadosLimpos.empresa_id = req.usuario.empresa_id;
+            } else if (dadosLimpos.fazenda_id && !dadosLimpos.empresa_id) {
+                // Se admin sistema não especificou empresa_id, buscar da fazenda
+                const fazenda = await this.produtoModel.raw(
+                    'SELECT empresa_id FROM fazendas WHERE id = $1',
+                    [dadosLimpos.fazenda_id]
+                );
+                if (fazenda.length > 0) {
+                    dadosLimpos.empresa_id = fazenda[0].empresa_id;
+                }
             }
 
             // Validações básicas

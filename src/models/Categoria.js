@@ -12,7 +12,7 @@ class Categoria extends BaseModel {
 
         // Campos que podem ser preenchidos em massa
         this.fillable = [
-            'nome', 'descricao', 'empresa_id', 'cor', 'categoria_pai_id', 'icone'
+            'nome', 'descricao', 'empresa_id', 'cor', 'categoria_pai_id', 'icone', 'ativo', 'atualizado_por'
         ];
 
         // Campos que devem ser omitidos nas respostas

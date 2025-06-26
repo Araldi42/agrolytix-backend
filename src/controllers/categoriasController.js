@@ -78,7 +78,7 @@ class CategoriasController extends BaseController {
     async criar(req, res, next) {
         try {
             const dadosLimpos = this.sanitizarDados(req.body, [
-                'nome', 'descricao'
+                'nome', 'descricao', 'cor', 'icone', 'categoria_pai_id'
             ]);
 
             // Definir empresa automaticamente se usuário não for admin sistema
@@ -100,11 +100,6 @@ class CategoriasController extends BaseController {
 
             if (!isUnique) {
                 return this.erroResponse(res, 'Já existe uma categoria com este nome', 409);
-            }
-
-            // Definir ordem se não especificada
-            if (!dadosLimpos.ordem) {
-                dadosLimpos.ordem = await this.categoriaModel.getNextOrder(dadosLimpos.empresa_id);
             }
 
             // Criar categoria
@@ -310,38 +305,10 @@ class CategoriasController extends BaseController {
      */
     async reordenar(req, res, next) {
         try {
-            const { categoria_ids } = req.body;
-            const empresaId = req.usuario.empresa_id;
-
-            if (!categoria_ids || !Array.isArray(categoria_ids)) {
-                return this.erroResponse(res, 'Lista de IDs das categorias é obrigatória', 400);
-            }
-
-            // Verificar se usuário pode reordenar (apenas gerentes ou superiores)
-            if (req.usuario.nivel_hierarquia > 3) {
-                return this.erroResponse(res, 'Sem permissão para reordenar categorias', 403);
-            }
-
-            const sucesso = await this.categoriaModel.reorder(categoria_ids, empresaId);
-
-            if (!sucesso) {
-                return this.erroResponse(res, 'Erro ao reordenar categorias', 500);
-            }
-
-            // Log de auditoria
-            await this.logarAuditoria(
-                req.usuario.id,
-                'REORDER',
-                'categorias',
-                null,
-                null,
-                { categoria_ids, total_reordenadas: categoria_ids.length }
-            );
-
-            return this.sucessoResponse(
-                res,
-                { total_reordenadas: categoria_ids.length },
-                'Categorias reordenadas com sucesso'
+            return this.erroResponse(
+                res, 
+                'Funcionalidade de reordenação não implementada. A tabela categorias não possui campo ordem.',
+                501
             );
 
         } catch (error) {
@@ -449,7 +416,7 @@ class CategoriasController extends BaseController {
             }
 
             const dadosLimpos = this.sanitizarDados(req.body, [
-                'nome', 'descricao'
+                'nome', 'descricao', 'cor', 'icone', 'categoria_pai_id'
             ]);
 
             // Categoria global não tem empresa_id
@@ -469,11 +436,6 @@ class CategoriasController extends BaseController {
 
             if (!isUnique) {
                 return this.erroResponse(res, 'Já existe uma categoria global com este nome', 409);
-            }
-
-            // Definir ordem se não especificada
-            if (!dadosLimpos.ordem) {
-                dadosLimpos.ordem = await this.categoriaModel.getNextOrder(null);
             }
 
             // Criar categoria

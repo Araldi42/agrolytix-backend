@@ -2,7 +2,7 @@
 Write-Host "Configurando usuario admin..." -ForegroundColor Green
 
 # Atualizar senha do usuário admin existente
-$updateQuery = "UPDATE usuarios SET senha = '`$2a`$10`$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi' WHERE email = 'admin@agrolytix.com';"
+$updateQuery = "UPDATE usuarios SET senha = '$2a$12$.L9w5D0r..vwyHxxg55kmOe/WSD1gXC.6K4Vk8a3.n.UWJ1sVOHdy';"
 
 Write-Host "Atualizando senha do admin..." -ForegroundColor Yellow
 docker-compose exec postgres psql -U agrolytix_user -d agrolytix_db -c $updateQuery

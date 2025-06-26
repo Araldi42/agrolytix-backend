@@ -51,7 +51,7 @@ class Setor extends BaseModel {
             SELECT 
                 s.id, s.nome, s.tipo, s.capacidade_maxima, s.unidade_capacidade,
                 s.coordenadas_gps, s.observacoes, s.criado_em,
-                f.nome as fazenda_nome,
+                s.fazenda_id, f.nome as fazenda_nome,
                 e.razao_social as empresa_nome,
                 COUNT(est.id) as produtos_estoque,
                 COALESCE(SUM(est.quantidade_atual), 0) as quantidade_total_estoque,
@@ -109,7 +109,7 @@ class Setor extends BaseModel {
         let sql = `
             SELECT 
                 s.*,
-                f.nome as fazenda_nome, f.codigo as fazenda_codigo,
+                s.fazenda_id, f.nome as fazenda_nome, f.codigo as fazenda_codigo,
                 e.razao_social as empresa_nome,
                 COUNT(est.id) as produtos_estoque,
                 COALESCE(SUM(est.quantidade_atual), 0) as quantidade_total_estoque,
@@ -148,7 +148,7 @@ class Setor extends BaseModel {
         let sql = `
             SELECT 
                 s.id, s.nome, s.tipo, s.capacidade_maxima, s.unidade_capacidade,
-                f.nome as fazenda_nome, f.codigo as fazenda_codigo,
+                s.fazenda_id, f.nome as fazenda_nome, f.codigo as fazenda_codigo,
                 COUNT(est.id) as produtos_estoque,
                 COALESCE(SUM(est.quantidade_atual), 0) as quantidade_total_estoque
             FROM setores s
@@ -172,7 +172,7 @@ class Setor extends BaseModel {
             paramIndex++;
         }
 
-        sql += ` GROUP BY s.id, f.nome, f.codigo`;
+        sql += ` GROUP BY s.id, s.fazenda_id, f.nome, f.codigo`;
         sql += ` ORDER BY f.nome, s.nome`;
         sql += ` LIMIT $${paramIndex}`;
         params.push(limit);
@@ -207,7 +207,7 @@ class Setor extends BaseModel {
         let sql = `
             SELECT 
                 s.id, s.nome, s.capacidade_maxima, s.unidade_capacidade,
-                f.nome as fazenda_nome,
+                s.fazenda_id, f.nome as fazenda_nome,
                 COUNT(est.id) as produtos_estoque,
                 COALESCE(SUM(est.quantidade_atual), 0) as ocupacao_atual
             FROM setores s
@@ -223,7 +223,7 @@ class Setor extends BaseModel {
             params.push(empresaId);
         }
 
-        sql += ` GROUP BY s.id, f.nome ORDER BY f.nome, s.nome`;
+        sql += ` GROUP BY s.id, s.fazenda_id, f.nome ORDER BY f.nome, s.nome`;
 
         const result = await query(sql, params);
         return result.rows;
@@ -236,7 +236,7 @@ class Setor extends BaseModel {
         let sql = `
             SELECT 
                 s.id, s.nome, s.tipo, s.capacidade_maxima, s.unidade_capacidade,
-                f.nome as fazenda_nome,
+                s.fazenda_id, f.nome as fazenda_nome,
                 COALESCE(SUM(est.quantidade_atual), 0) as ocupacao_atual,
                 (s.capacidade_maxima - COALESCE(SUM(est.quantidade_atual), 0)) as capacidade_disponivel,
                 CASE 
@@ -262,7 +262,7 @@ class Setor extends BaseModel {
             paramIndex++;
         }
 
-        sql += ` GROUP BY s.id, f.nome`;
+        sql += ` GROUP BY s.id, s.fazenda_id, f.nome`;
         sql += ` HAVING (s.capacidade_maxima - COALESCE(SUM(est.quantidade_atual), 0)) >= $${paramIndex}`;
         params.push(capacidadeMinima);
 
@@ -323,7 +323,6 @@ class Setor extends BaseModel {
             INNER JOIN usuarios u ON m.usuario_criacao = u.id
             LEFT JOIN movimentacao_itens mi ON m.id = mi.movimentacao_id
             WHERE (m.origem_setor_id = $1 OR m.destino_setor_id = $1)
-                AND m.ativo = true
         `;
 
         const params = [setorId];
@@ -378,7 +377,7 @@ class Setor extends BaseModel {
         let sql = `
             SELECT 
                 s.id, s.nome, s.tipo, s.capacidade_maxima,
-                f.nome as fazenda_nome,
+                s.fazenda_id, f.nome as fazenda_nome,
                 s.coordenadas_gps,
                 ST_Distance(
                     ST_GeogFromText('POINT(' || $1 || ' ' || $2 || ')'),

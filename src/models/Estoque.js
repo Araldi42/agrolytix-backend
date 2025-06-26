@@ -60,7 +60,7 @@ class Estoque extends BaseModel {
                 e.valor_unitario_medio, e.valor_total, e.data_ultima_movimentacao,
                 p.nome as produto_nome, p.codigo_interno, p.categoria_produto,
                 s.nome as setor_nome,
-                f.nome as fazenda_nome,
+                s.fazenda_id, f.nome as fazenda_nome,
                 t.nome as tipo_nome, t.estoque_minimo, t.estoque_maximo,
                 l.numero_lote, l.data_vencimento,
                 CASE 
@@ -130,7 +130,7 @@ class Estoque extends BaseModel {
             SELECT 
                 e.*,
                 s.nome as setor_nome,
-                f.nome as fazenda_nome,
+                s.fazenda_id, f.nome as fazenda_nome,
                 l.numero_lote, l.data_vencimento,
                 p.nome as produto_nome, p.codigo_interno
             FROM estoque e
@@ -163,7 +163,7 @@ class Estoque extends BaseModel {
                 p.id, p.nome as produto_nome, p.codigo_interno,
                 t.nome as tipo_nome, t.estoque_minimo,
                 SUM(e.quantidade_atual) as estoque_atual,
-                f.nome as fazenda_nome,
+                p.fazenda_id, f.nome as fazenda_nome,
                 COUNT(e.id) as locais_estoque,
                 (SUM(e.quantidade_atual) / NULLIF(t.estoque_minimo, 0)) * 100 as percentual_estoque
             FROM produtos p
@@ -175,7 +175,7 @@ class Estoque extends BaseModel {
                 AND p.ativo = true 
                 AND p.categoria_produto = 'insumo'
                 AND t.estoque_minimo IS NOT NULL
-            GROUP BY p.id, p.nome, p.codigo_interno, t.nome, t.estoque_minimo, f.nome
+            GROUP BY p.id, p.nome, p.codigo_interno, t.nome, t.estoque_minimo, p.fazenda_id, f.nome
             HAVING SUM(e.quantidade_atual) <= t.estoque_minimo
             ORDER BY percentual_estoque ASC
             LIMIT $2
@@ -193,7 +193,7 @@ class Estoque extends BaseModel {
             SELECT 
                 p.id, p.nome as produto_nome, p.codigo_interno,
                 t.nome as tipo_nome,
-                f.nome as fazenda_nome,
+                p.fazenda_id, f.nome as fazenda_nome,
                 COALESCE(SUM(e.quantidade_atual), 0) as estoque_atual
             FROM produtos p
             INNER JOIN tipos t ON p.tipo_id = t.id
@@ -202,7 +202,7 @@ class Estoque extends BaseModel {
             WHERE p.empresa_id = $1 
                 AND p.ativo = true 
                 AND p.categoria_produto = 'insumo'
-            GROUP BY p.id, p.nome, p.codigo_interno, t.nome, f.nome
+            GROUP BY p.id, p.nome, p.codigo_interno, t.nome, p.fazenda_id, f.nome
             HAVING COALESCE(SUM(e.quantidade_atual), 0) = 0
             ORDER BY p.nome
         `;
@@ -221,7 +221,7 @@ class Estoque extends BaseModel {
                 p.nome as produto_nome, p.codigo_interno,
                 l.numero_lote, l.data_vencimento,
                 s.nome as setor_nome,
-                f.nome as fazenda_nome,
+                s.fazenda_id, f.nome as fazenda_nome,
                 (l.data_vencimento - CURRENT_DATE) as dias_para_vencer
             FROM estoque e
             INNER JOIN produtos p ON e.produto_id = p.id
@@ -246,7 +246,7 @@ class Estoque extends BaseModel {
     async getResumoByFazenda(empresaId) {
         const sql = `
             SELECT 
-                f.id, f.nome as fazenda_nome,
+                f.id as fazenda_id, f.nome as fazenda_nome,
                 COUNT(DISTINCT p.id) as total_produtos,
                 COUNT(e.id) as total_posicoes_estoque,
                 SUM(e.valor_total) as valor_total_estoque,

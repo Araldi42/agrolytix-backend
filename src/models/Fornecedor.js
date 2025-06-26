@@ -527,7 +527,7 @@ class Fornecedor extends BaseModel {
                 m.id, m.numero_documento, m.data_movimentacao,
                 m.valor_total, m.observacoes, m.status,
                 tm.nome as tipo_movimentacao,
-                f.nome as fazenda_nome,
+                m.fazenda_id, f.nome as fazenda_nome,
                 COUNT(mi.id) as total_itens
             FROM movimentacoes m
             INNER JOIN tipos_movimentacao tm ON m.tipo_movimentacao_id = tm.id
