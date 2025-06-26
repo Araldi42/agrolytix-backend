@@ -306,7 +306,7 @@ class Fazenda extends BaseModel {
             WHERE m.fazenda_id = $1 
                 AND ${intervalCondition}
                 AND m.status = 'confirmado'
-                AND m.ativo = true
+
 
             UNION ALL
 

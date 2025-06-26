@@ -16,7 +16,7 @@ class Produto extends BaseModel {
             'empresa_id', 'fazenda_id', 'tipo_id', 'codigo_interno', 'codigo_barras',
             'nome', 'descricao', 'numero_serie', 'marca', 'modelo', 'ano_fabricacao',
             'valor_aquisicao', 'data_aquisicao', 'fornecedor_id', 'categoria_produto',
-            'status', 'observacoes'
+            'status', 'observacoes', 'ativo', 'atualizado_por'
         ];
 
         // Campos que devem ser omitidos nas respostas
@@ -63,7 +63,7 @@ class Produto extends BaseModel {
                 p.numero_serie, p.marca, p.modelo, p.ano_fabricacao,
                 p.valor_aquisicao, p.data_aquisicao, p.categoria_produto,
                 p.status, p.observacoes, p.criado_em, p.atualizado_em,
-                f.nome as fazenda_nome,
+                p.fazenda_id, f.nome as fazenda_nome,
                 t.nome as tipo_nome,
                 forn.nome as fornecedor_nome,
                 c.nome as categoria_nome,
@@ -192,7 +192,7 @@ class Produto extends BaseModel {
                 t.nome as tipo_nome,
                 t.estoque_minimo,
                 COALESCE(SUM(e.quantidade_atual), 0) as estoque_atual,
-                f.nome as fazenda_nome
+                p.fazenda_id, f.nome as fazenda_nome
             FROM produtos p
             INNER JOIN tipos t ON p.tipo_id = t.id
             LEFT JOIN estoque e ON p.id = e.produto_id
@@ -201,7 +201,7 @@ class Produto extends BaseModel {
                 AND p.ativo = true 
                 AND p.categoria_produto = 'insumo'
                 AND t.estoque_minimo IS NOT NULL
-            GROUP BY p.id, p.nome, p.codigo_interno, t.nome, t.estoque_minimo, f.nome
+            GROUP BY p.id, p.nome, p.codigo_interno, t.nome, t.estoque_minimo, p.fazenda_id, f.nome
             HAVING COALESCE(SUM(e.quantidade_atual), 0) <= t.estoque_minimo
             ORDER BY (COALESCE(SUM(e.quantidade_atual), 0) / NULLIF(t.estoque_minimo, 0)) ASC
             LIMIT $2

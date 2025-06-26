@@ -642,6 +642,31 @@ class EmpresasController extends BaseController {
             next(error);
         }
     }
+
+    /**
+     * Listar empresas simplificado para dropdowns/selects
+     * Retorna apenas ID e nome das empresas ativas
+     */
+    async listarSimplificado(req, res, next) {
+        try {
+            // Apenas admin sistema pode ver todas as empresas
+            if (req.usuario.nivel_hierarquia > 1) {
+                return this.erroResponse(res, 'Acesso negado', 403);
+            }
+
+            const empresas = await this.empresaModel.findAllSimplified();
+
+            return this.sucessoResponse(
+                res,
+                empresas,
+                'Lista simplificada de empresas'
+            );
+
+        } catch (error) {
+            console.error('Erro ao listar empresas simplificado:', error);
+            next(error);
+        }
+    }
 }
 
 module.exports = new EmpresasController();

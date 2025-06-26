@@ -54,14 +54,14 @@ class Movimentacao extends BaseModel {
         const offset = (page - 1) * limit;
         let paramIndex = 1;
         const params = [empresaId];
-        const conditions = ['m.empresa_id = $1', 'm.ativo = true'];
+        const conditions = ['m.empresa_id = $1'];
 
         let sql = `
             SELECT 
                 m.id, m.numero_documento, m.data_movimentacao,
                 m.valor_total, m.status, m.observacoes, m.criado_em,
                 tm.nome as tipo_movimentacao, tm.operacao, tm.codigo,
-                f.nome as fazenda_nome,
+                m.fazenda_id, f.nome as fazenda_nome,
                 forn.nome as fornecedor_nome,
                 cli.nome as cliente_nome,
                 u.nome as usuario_nome,
@@ -135,7 +135,7 @@ class Movimentacao extends BaseModel {
             SELECT 
                 m.*,
                 tm.nome as tipo_movimentacao, tm.operacao, tm.codigo,
-                f.nome as fazenda_nome,
+                m.fazenda_id, f.nome as fazenda_nome,
                 forn.nome as fornecedor_nome,
                 cli.nome as cliente_nome,
                 u.nome as usuario_nome,
@@ -149,7 +149,7 @@ class Movimentacao extends BaseModel {
             LEFT JOIN usuarios u ON m.usuario_criacao = u.id
             LEFT JOIN setores so ON m.origem_setor_id = so.id
             LEFT JOIN setores sd ON m.destino_setor_id = sd.id
-            WHERE m.id = $1 AND m.ativo = true
+            WHERE m.id = $1
         `;
 
         const params = [id];
@@ -357,7 +357,7 @@ class Movimentacao extends BaseModel {
             SELECT 
                 m.*,
                 tm.nome as tipo_movimentacao, tm.operacao,
-                f.nome as fazenda_nome,
+                m.fazenda_id, f.nome as fazenda_nome,
                 COUNT(mi.id) as total_itens,
                 SUM(mi.quantidade * mi.valor_unitario) as valor_calculado
             FROM movimentacoes m
@@ -367,7 +367,6 @@ class Movimentacao extends BaseModel {
             WHERE m.empresa_id = $1 
                 AND m.data_movimentacao >= $2 
                 AND m.data_movimentacao <= $3
-                AND m.ativo = true
         `;
 
         const params = [empresaId, dataInicio, dataFim];
@@ -422,7 +421,6 @@ class Movimentacao extends BaseModel {
             WHERE m.empresa_id = $1 
                 AND ${intervalCondition}
                 AND m.status = 'confirmado'
-                AND m.ativo = true
             GROUP BY tm.id, tm.nome, tm.operacao
             ORDER BY valor_total DESC
         `;
@@ -440,7 +438,7 @@ class Movimentacao extends BaseModel {
                 m.id, m.numero_documento, m.data_movimentacao,
                 m.valor_total, m.observacoes, m.criado_em,
                 tm.nome as tipo_movimentacao,
-                f.nome as fazenda_nome,
+                m.fazenda_id, f.nome as fazenda_nome,
                 u.nome as usuario_criacao_nome,
                 COUNT(mi.id) as total_itens,
                 EXTRACT(DAYS FROM (NOW() - m.criado_em)) as dias_pendente
@@ -451,7 +449,6 @@ class Movimentacao extends BaseModel {
             LEFT JOIN movimentacao_itens mi ON m.id = mi.movimentacao_id
             WHERE m.empresa_id = $1 
                 AND m.status = 'pendente'
-                AND m.ativo = true
         `;
 
         const params = [empresaId];
@@ -501,7 +498,6 @@ class Movimentacao extends BaseModel {
             INNER JOIN tipos t ON p.tipo_id = t.id
             WHERE m.empresa_id = $1 
                 AND m.status = 'confirmado'
-                AND m.ativo = true
                 ${intervalCondition}
             GROUP BY p.id, p.nome, p.codigo_interno, t.nome
             ORDER BY total_movimentacoes DESC, quantidade_total_movimentada DESC
