@@ -16,6 +16,7 @@ const movimentacoesRoutes = require('./routes/movimentacoes');
 const empresasRoutes = require('./routes/empresas');
 const lotesRoutes = require('./routes/lotes');
 const fazendasRoutes = require('./routes/fazendas');
+const dashboardRoutes = require('./routes/dashboard');
 
 // Testar conexão com banco
 const { testarConexao } = require('./config/database');
@@ -93,6 +94,7 @@ app.use('/api/movimentacoes', movimentacoesRoutes);
 app.use('/api/empresas', empresasRoutes);
 app.use('/api/lotes', lotesRoutes);
 app.use('/api/fazendas', fazendasRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 
 // Rota raiz para verificar se o servidor está funcionando
 app.get('/', (req, res) => {
