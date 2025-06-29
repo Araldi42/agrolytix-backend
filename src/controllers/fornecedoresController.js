@@ -84,7 +84,9 @@ class FornecedoresController extends BaseController {
     async criar(req, res, next) {
         try {
             const dadosLimpos = this.sanitizarDados(req.body, [
-                'nome', 'contato', 'endereco_completo', 'cidade', 'observacoes'
+                'nome', 'nome_fantasia', 'tipo_pessoa', 'cnpj', 'cpf', 'inscricao_estadual',
+                'contato', 'email', 'telefone', 'whatsapp', 'endereco', 'cep', 'cidade', 'estado',
+                'observacoes', 'prazo_pagamento_padrao', 'rating'
             ]);
 
             // Definir empresa automaticamente se usuário não for admin sistema
@@ -188,7 +190,9 @@ class FornecedoresController extends BaseController {
             }
 
             const dadosLimpos = this.sanitizarDados(req.body, [
-                'nome', 'contato', 'endereco_completo', 'cidade', 'observacoes'
+                'nome', 'nome_fantasia', 'tipo_pessoa', 'cnpj', 'cpf', 'inscricao_estadual',
+                'contato', 'email', 'telefone', 'whatsapp', 'endereco', 'cep', 'cidade', 'estado',
+                'observacoes', 'prazo_pagamento_padrao', 'rating'
             ]);
 
             // Validações básicas
@@ -571,7 +575,9 @@ class FornecedoresController extends BaseController {
             }
 
             const dadosLimpos = this.sanitizarDados(req.body, [
-                'nome', 'contato', 'endereco_completo', 'cidade', 'observacoes'
+                'nome', 'nome_fantasia', 'tipo_pessoa', 'cnpj', 'cpf', 'inscricao_estadual',
+                'contato', 'email', 'telefone', 'whatsapp', 'endereco', 'cep', 'cidade', 'estado',
+                'observacoes', 'prazo_pagamento_padrao', 'rating'
             ]);
 
             // Fornecedor global não tem empresa_id

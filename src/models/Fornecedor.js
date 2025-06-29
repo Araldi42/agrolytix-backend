@@ -14,7 +14,7 @@ class Fornecedor extends BaseModel {
         this.fillable = [
             'empresa_id', 'nome', 'nome_fantasia', 'tipo_pessoa', 'cnpj', 'cpf', 'inscricao_estadual',
             'contato', 'email', 'telefone', 'whatsapp', 'endereco', 'cep', 'cidade', 'estado',
-            'observacoes', 'prazo_pagamento_padrao', 'rating'
+            'observacoes', 'prazo_pagamento_padrao', 'rating', 'criado_por', 'atualizado_por'
         ];
 
         // Campos que devem ser omitidos nas respostas
