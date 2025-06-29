@@ -1,267 +1,389 @@
+// ===================================================================
+// ROUTES: usuarios.js
+// ===================================================================
 const express = require('express');
-const usuariosController = require('../controllers/usuariosController');
-const {
-    autenticacao,
-    requerNivel,
-    requerPermissao,
-    requerEmpresa,
-    requerFazenda,
-    podeGerenciarUsuarios,
-    rateLimiting
-} = require('../middlewares/authorizationMiddleware');
-
 const router = express.Router();
+const GerenciaUsuariosController = require('../controllers/GerenciaUsuarioController');
+const { autenticacao, requerNivel } = require('../middlewares/authorizationMiddleware');
 
-// Aplicar middleware de autenticação em todas as rotas
+// ===================================================================
+// MIDDLEWARES APLICADOS A TODAS AS ROTAS
+// ===================================================================
+
+// Todas as rotas de usuários requerem autenticação
 router.use(autenticacao);
 
-// Rate limiting opcional para todas as rotas de usuários
-// router.use(rateLimiting(200, 15 * 60 * 1000)); // 200 requests por 15 min
+// ===================================================================
+// ROTAS AUXILIARES (Para formulários do frontend)
+// ===================================================================
 
 /**
- * ⚠️ IMPORTANTE: ROTAS ESPECÍFICAS DEVEM VIR ANTES DAS ROTAS COM PARÂMETROS ⚠️
+ * GET /api/usuarios/perfis
+ * Lista perfis disponíveis para seleção no frontend
+ * Acesso: Administradores e Gerentes (níveis 2 e 3)
  */
+router.get('/perfis', requerNivel(3), GerenciaUsuariosController.listarPerfis);
 
 /**
- * ROTAS DE ESTATÍSTICAS E RELATÓRIOS
+ * GET /api/usuarios/fazendas
+ * Lista fazendas da empresa para seleção no frontend
+ * Acesso: Administradores e Gerentes (níveis 2 e 3)
  */
+router.get('/fazendas', requerNivel(3), GerenciaUsuariosController.listarFazendas);
+
+// ===================================================================
+// ROTAS PRINCIPAIS DE USUÁRIOS
+// ===================================================================
 
 /**
- * @route GET /api/usuarios/stats/dashboard
- * @desc Dashboard completo de usuários
- * @access Private - Requer nível gerente ou superior (3)
+ * GET /api/usuarios
+ * Lista usuários com filtros e paginação
+ * 
+ * Query Parameters:
+ * - pagina: número da página (default: 1)
+ * - limite: itens por página (default: 10, max: 50)
+ * - perfil_id: filtrar por perfil
+ * - fazenda_id: filtrar por fazenda
+ * - ativo: filtrar por status (true/false)
+ * - busca: busca por nome, email, login ou cargo
+ * 
+ * Acesso: Administradores e Gerentes (níveis 2 e 3)
  */
-router.get('/stats/dashboard',
-    requerNivel(3),
-    usuariosController.dashboard.bind(usuariosController)
-);
+router.get('/', requerNivel(3), GerenciaUsuariosController.listar);
 
 /**
- * @route GET /api/usuarios/stats/estatisticas
- * @desc Obter estatísticas gerais de usuários
- * @access Private - Requer nível gerente ou superior (3)
+ * GET /api/usuarios/:id
+ * Busca usuário específico por ID
+ * 
+ * Params:
+ * - id: ID do usuário
+ * 
+ * Acesso: Administradores e Gerentes (níveis 2 e 3)
  */
-router.get('/stats/estatisticas',
-    requerNivel(3),
-    usuariosController.estatisticas.bind(usuariosController)
-);
+router.get('/:id', requerNivel(3), GerenciaUsuariosController.buscarPorId);
 
 /**
- * @route GET /api/usuarios/stats/inativos
- * @desc Buscar usuários inativos por período
- * @access Private - Requer nível gerente ou superior (3)
- * @param {number} dias - Número de dias de inatividade (query param)
+ * POST /api/usuarios
+ * Cria novo usuário
+ * 
+ * Body (JSON):
+ * {
+ *   "perfil_id": 4,
+ *   "nome": "João da Silva",
+ *   "login": "joao.silva",
+ *   "email": "joao@empresa.com",
+ *   "senha": "senha123",
+ *   "cpf": "123.456.789-00", // opcional
+ *   "telefone": "(11) 99999-9999", // opcional
+ *   "cargo": "Operador de Campo", // opcional
+ *   "fazendas_acesso": [1, 2] // opcional - array de IDs das fazendas
+ * }
+ * 
+ * Acesso: Administradores e Gerentes (níveis 2 e 3)
  */
-router.get('/stats/inativos',
-    requerNivel(3),
-    usuariosController.usuariosInativos.bind(usuariosController)
-);
+router.post('/', requerNivel(3), GerenciaUsuariosController.criar);
 
 /**
- * ROTAS DE FILTROS E BUSCAS ESPECÍFICAS
+ * PUT /api/usuarios/:id
+ * Atualiza usuário existente
+ * 
+ * Params:
+ * - id: ID do usuário
+ * 
+ * Body (JSON) - todos os campos são opcionais:
+ * {
+ *   "perfil_id": 3,
+ *   "nome": "João da Silva Santos",
+ *   "login": "joao.santos",
+ *   "email": "joao.santos@empresa.com",
+ *   "senha": "novaSenha123", // opcional - só enviar se quiser alterar
+ *   "cpf": "123.456.789-00",
+ *   "telefone": "(11) 88888-8888",
+ *   "cargo": "Gerente de Campo",
+ *   "ativo": true,
+ *   "fazendas_acesso": [1, 3] // array de IDs - substitui o acesso atual
+ * }
+ * 
+ * Acesso: Administradores e Gerentes (níveis 2 e 3)
  */
+router.put('/:id', requerNivel(3), GerenciaUsuariosController.atualizar);
 
 /**
- * @route GET /api/usuarios/filters/cargo
- * @desc Buscar usuários por cargo
- * @access Private - Requer nível gerente ou superior (3)
- * @param {string} cargo - Cargo para buscar (query param)
+ * DELETE /api/usuarios/:id
+ * Exclui usuário (soft delete - marca como inativo)
+ * 
+ * Params:
+ * - id: ID do usuário
+ * 
+ * Obs: Não permite excluir o próprio usuário
+ * 
+ * Acesso: Administradores e Gerentes (níveis 2 e 3)
  */
-router.get('/filters/cargo',
-    requerNivel(3),
-    usuariosController.buscarPorCargo.bind(usuariosController)
-);
+router.delete('/:id', requerNivel(3), GerenciaUsuariosController.excluir);
 
-/**
- * @route GET /api/usuarios/perfil/:perfil_id
- * @desc Buscar usuários por perfil específico
- * @access Private - Requer nível gerente ou superior (3)
- * @param {number} perfil_id - ID do perfil
- */
-router.get('/perfil/:perfil_id',
-    requerNivel(3),
-    usuariosController.buscarPorPerfil.bind(usuariosController)
-);
+// ===================================================================
+// MIDDLEWARE DE TRATAMENTO DE ERROS ESPECÍFICO DAS ROTAS
+// ===================================================================
 
-/**
- * ROTAS PRINCIPAIS DE CRUD
- */
+// Middleware para capturar erros não tratados nas rotas de usuários
+router.use((error, req, res, next) => {
+    console.error('Erro nas rotas de usuários:', {
+        error: error.message,
+        stack: error.stack,
+        url: req.originalUrl,
+        method: req.method,
+        body: req.body,
+        usuario: req.usuario?.id
+    });
 
-/**
- * @route GET /api/usuarios
- * @desc Listar usuários da empresa
- * @access Private - Requer nível gerente ou superior (3)
- * @param {string} search - Termo de busca (query param)
- * @param {number} perfil_id - Filtrar por perfil (query param)
- * @param {boolean} ativo - Filtrar por status ativo (query param)
- * @param {number} page - Página atual (query param)
- * @param {number} limit - Itens por página (query param)
- */
-router.get('/',
-    requerNivel(3),
-    usuariosController.listar.bind(usuariosController)
-);
+    // Se o erro já foi tratado (response já enviado), apenas prossegue
+    if (res.headersSent) {
+        return next(error);
+    }
 
-/**
- * @route POST /api/usuarios
- * @desc Criar novo usuário
- * @access Private - Requer permissão para gerenciar usuários
- * @body {Object} userData - Dados do usuário
- * @body {string} senha - Senha do usuário
- * @body {string} confirmar_senha - Confirmação da senha
- * @body {Array} fazendas_ids - Array de IDs das fazendas (opcional)
- */
-router.post('/',
-    podeGerenciarUsuarios,
-    usuariosController.criar.bind(usuariosController)
-);
-
-/**
- * ROTAS COM PARÂMETROS DE ID (devem vir por último)
- */
-
-/**
- * @route GET /api/usuarios/:id
- * @desc Buscar usuário por ID com detalhes completos
- * @access Private - Usuário pode ver próprio perfil OU gerentes podem ver outros
- * @param {number} id - ID do usuário
- */
-router.get('/:id',
-    usuariosController.buscarPorId.bind(usuariosController)
-);
-
-/**
- * @route PUT /api/usuarios/:id
- * @desc Atualizar dados do usuário
- * @access Private - Usuário pode editar próprio perfil OU gerentes podem editar outros
- * @param {number} id - ID do usuário
- * @body {Object} userData - Dados para atualizar
- * @body {Array} fazendas_ids - Array de IDs das fazendas (opcional)
- */
-router.put('/:id',
-    usuariosController.atualizar.bind(usuariosController)
-);
-
-/**
- * @route PUT /api/usuarios/:id/inativar
- * @desc Inativar usuário
- * @access Private - Requer permissão para gerenciar usuários
- * @param {number} id - ID do usuário
- */
-router.put('/:id/inativar',
-    podeGerenciarUsuarios,
-    usuariosController.inativar.bind(usuariosController)
-);
-
-/**
- * @route PUT /api/usuarios/:id/reativar
- * @desc Reativar usuário inativo
- * @access Private - Requer permissão para gerenciar usuários
- * @param {number} id - ID do usuário
- */
-router.put('/:id/reativar',
-    podeGerenciarUsuarios,
-    usuariosController.reativar.bind(usuariosController)
-);
-
-/**
- * @route PUT /api/usuarios/:id/alterar-senha
- * @desc Alterar senha do usuário
- * @access Private - Usuário pode alterar própria senha OU admins podem alterar qualquer senha
- * @param {number} id - ID do usuário
- * @body {string} senha_atual - Senha atual (obrigatória para próprio usuário)
- * @body {string} nova_senha - Nova senha
- * @body {string} confirmar_senha - Confirmação da nova senha
- */
-router.put('/:id/alterar-senha',
-    usuariosController.alterarSenha.bind(usuariosController)
-);
-
-/**
- * ROTAS DE GERENCIAMENTO DE FAZENDAS
- */
-
-/**
- * @route PUT /api/usuarios/:id/fazendas
- * @desc Gerenciar acesso do usuário às fazendas
- * @access Private - Requer permissão para gerenciar usuários
- * @param {number} id - ID do usuário
- * @body {Array} fazendas_ids - Array de IDs das fazendas
- */
-router.put('/:id/fazendas',
-    podeGerenciarUsuarios,
-    usuariosController.gerenciarFazendas.bind(usuariosController)
-);
-
-/**
- * @route GET /api/usuarios/:id/fazendas
- * @desc Buscar fazendas que o usuário tem acesso
- * @access Private - Usuário pode ver próprias fazendas OU gerentes podem ver de outros
- * @param {number} id - ID do usuário
- */
-router.get('/:id/fazendas',
-    usuariosController.fazendasUsuario.bind(usuariosController)
-);
-
-/**
- * ROTAS DE TESTE E DEBUG (remover em produção)
- */
-
-/**
- * @route GET /api/usuarios/test/auth
- * @desc Rota de teste para verificar autenticação
- * @access Private - Qualquer usuário autenticado
- */
-router.get('/test/auth', (req, res) => {
-    res.json({
-        sucesso: true,
-        mensagem: 'Autenticação funcionando',
-        usuario: {
-            id: req.usuario.id,
-            nome: req.usuario.nome,
-            email: req.usuario.email,
-            empresa_id: req.usuario.empresa_id,
-            nivel_hierarquia: req.usuario.nivel_hierarquia,
-            perfil_nome: req.usuario.perfil_nome
-        },
+    // Resposta padrão para erros não tratados
+    res.status(500).json({
+        sucesso: false,
+        mensagem: 'Erro interno do servidor na gestão de usuários',
         timestamp: new Date().toISOString()
     });
 });
 
-/**
- * MIDDLEWARE DE TRATAMENTO DE ERROS ESPECÍFICO PARA USUÁRIOS
- */
-router.use((error, req, res, next) => {
-    console.error('Erro nas rotas de usuários:', error);
-
-    // Erros específicos do módulo de usuários
-    if (error.code === '23505') { // Violação de unicidade (PostgreSQL)
-        if (error.constraint?.includes('login')) {
-            return res.status(409).json({
-                sucesso: false,
-                mensagem: 'Login já está em uso',
-                detalhes: ['Escolha outro login']
-            });
-        }
-        if (error.constraint?.includes('email')) {
-            return res.status(409).json({
-                sucesso: false,
-                mensagem: 'Email já está em uso',
-                detalhes: ['Escolha outro email']
-            });
-        }
-    }
-
-    if (error.code === '23503') { // Violação de chave estrangeira
-        return res.status(400).json({
-            sucesso: false,
-            mensagem: 'Dados relacionados inválidos',
-            detalhes: ['Verifique se empresa e perfil existem']
-        });
-    }
-
-    // Passar para o middleware global de erros
-    next(error);
-});
-
 module.exports = router;
+
+// ===================================================================
+// DOCUMENTAÇÃO PARA O FRONTEND REACT/NEXT.JS
+// ===================================================================
+
+/*
+
+ESTRUTURA DE DADOS PARA O FRONTEND:
+
+1. USUÁRIO (objeto retornado pelas APIs):
+{
+  "id": 5,
+  "empresa_id": 2,
+  "perfil_id": 3,
+  "nome": "Ana Paula Santos",
+  "login": "ana.santos",
+  "email": "ana@empresa.com",
+  "cpf": "345.678.901-23",
+  "telefone": "(89) 99234-5678",
+  "cargo": "Gerente de Produção",
+  "ultimo_acesso": "2024-12-20T10:30:00.000Z",
+  "ativo": true,
+  "criado_em": "2024-01-15T08:00:00.000Z",
+  "atualizado_em": "2024-12-01T14:30:00.000Z",
+  "perfil_nome": "Gerente",
+  "nivel_hierarquia": 3,
+  "empresa_nome": "Fazenda Santa Isabel",
+  "fazendas_acesso": [
+    {
+      "id": 3,
+      "nome": "Sede Santa Isabel",
+      "codigo": "SI001"
+    },
+    {
+      "id": 4,
+      "nome": "Unidade Chapada",
+      "codigo": "SI002"
+    }
+  ]
+}
+
+2. LISTA DE USUÁRIOS (resposta paginada):
+{
+  "sucesso": true,
+  "mensagem": "Usuários listados com sucesso",
+  "dados": [
+    // array de usuários
+  ],
+  "paginacao": {
+    "total": 25,
+    "pagina_atual": 1,
+    "limite": 10,
+    "total_paginas": 3,
+    "tem_proxima": true,
+    "tem_anterior": false
+  },
+  "timestamp": "2024-12-20T15:30:00.000Z"
+}
+
+3. PERFIS DISPONÍVEIS:
+{
+  "sucesso": true,
+  "dados": [
+    {
+      "id": 2,
+      "nome": "Admin Empresa",
+      "descricao": "Administrador da empresa/fazenda",
+      "nivel_hierarquia": 2
+    },
+    {
+      "id": 3,
+      "nome": "Gerente",
+      "descricao": "Gerente da fazenda",
+      "nivel_hierarquia": 3
+    },
+    {
+      "id": 4,
+      "nome": "Operador",
+      "descricao": "Operador de campo/estoque",
+      "nivel_hierarquia": 4
+    },
+    {
+      "id": 5,
+      "nome": "Somente Leitura",
+      "descricao": "Acesso apenas para consulta",
+      "nivel_hierarquia": 5
+    }
+  ]
+}
+
+4. FAZENDAS DISPONÍVEIS:
+{
+  "sucesso": true,
+  "dados": [
+    {
+      "id": 3,
+      "nome": "Sede Santa Isabel",
+      "codigo": "SI001",
+      "cidade": "Bom Jesus",
+      "estado": "PI",
+      "area_total_hectares": "3200.00"
+    },
+    {
+      "id": 4,
+      "nome": "Unidade Chapada",
+      "codigo": "SI002",
+      "cidade": "Bom Jesus",
+      "estado": "PI",
+      "area_total_hectares": "2800.00"
+    }
+  ]
+}
+
+EXEMPLOS DE USO NO FRONTEND REACT/NEXT.JS:
+
+1. LISTAR USUÁRIOS:
+```javascript
+const listarUsuarios = async (filtros = {}, pagina = 1) => {
+  const params = new URLSearchParams({
+    pagina: pagina.toString(),
+    limite: '10',
+    ...filtros
+  });
+
+  const response = await fetch(`/api/usuarios?${params}`, {
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    }
+  });
+
+  return await response.json();
+};
+```
+
+2. CRIAR USUÁRIO:
+```javascript
+const criarUsuario = async (dadosUsuario) => {
+  const response = await fetch('/api/usuarios', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(dadosUsuario)
+  });
+
+  return await response.json();
+};
+```
+
+3. ATUALIZAR USUÁRIO:
+```javascript
+const atualizarUsuario = async (id, dadosUsuario) => {
+  const response = await fetch(`/api/usuarios/${id}`, {
+    method: 'PUT',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(dadosUsuario)
+  });
+
+  return await response.json();
+};
+```
+
+4. EXCLUIR USUÁRIO:
+```javascript
+const excluirUsuario = async (id) => {
+  const response = await fetch(`/api/usuarios/${id}`, {
+    method: 'DELETE',
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  });
+
+  return await response.json();
+};
+```
+
+5. BUSCAR DADOS AUXILIARES:
+```javascript
+const buscarPerfis = async () => {
+  const response = await fetch('/api/usuarios/perfis', {
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  });
+
+  return await response.json();
+};
+
+const buscarFazendas = async () => {
+  const response = await fetch('/api/usuarios/fazendas', {
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  });
+
+  return await response.json();
+};
+```
+
+COMPONENTES SUGERIDOS PARA O FRONTEND:
+
+1. ListaUsuarios - Tabela com filtros e paginação
+2. FormularioUsuario - Modal/página para criar/editar
+3. DetalheUsuario - Visualização completa do usuário
+4. FiltrosUsuarios - Componente de filtros (perfil, fazenda, busca)
+5. ConfirmacaoExclusao - Modal de confirmação para exclusão
+
+CAMPOS DO FORMULÁRIO:
+
+Obrigatórios:
+- perfil_id (select com perfis disponíveis)
+- nome (input text)
+- login (input text)
+- email (input email)
+- senha (input password - apenas na criação)
+
+Opcionais:
+- cpf (input text com máscara)
+- telefone (input text com máscara)
+- cargo (input text)
+- fazendas_acesso (multi-select com fazendas)
+- ativo (checkbox - apenas na edição)
+
+VALIDAÇÕES NO FRONTEND:
+
+- Email: formato válido
+- CPF: validação de CPF brasileiro (se preenchido)
+- Telefone: formato brasileiro (se preenchido)
+- Senha: mínimo 6 caracteres, 1 letra, 1 número
+- Login: único, sem espaços, minúsculas
+
+*/
